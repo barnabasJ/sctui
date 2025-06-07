@@ -23,6 +23,24 @@ type Track struct {
 	User        User   `json:"user"`
 }
 
+// Artist returns the artist name for the track
+func (t Track) Artist() string {
+	return t.User.FullName()
+}
+
+// DurationString returns a formatted duration string
+func (t Track) DurationString() string {
+	if t.Duration <= 0 {
+		return "0:00"
+	}
+	
+	totalSeconds := t.Duration / 1000
+	minutes := totalSeconds / 60
+	seconds := totalSeconds % 60
+	
+	return fmt.Sprintf("%d:%02d", minutes, seconds)
+}
+
 // User represents a SoundCloud user
 type User struct {
 	ID        int64  `json:"id"`
@@ -43,6 +61,12 @@ func (u User) FullName() string {
 		return u.FirstName
 	}
 	return u.FirstName + " " + u.LastName
+}
+
+// ClientInterface defines the interface for SoundCloud client
+type ClientInterface interface {
+	Search(query string) ([]Track, error)
+	GetTrackInfo(url string) (*Track, error)
 }
 
 // NewClient creates a new SoundCloud client
