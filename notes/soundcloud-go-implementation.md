@@ -50,40 +50,63 @@ Use the reverse-engineered SoundCloud API library to build a legitimate TUI clie
 - Comprehensive ToS disclaimer for users
 - Error handling and user-friendly output
 
-### Step 2: Audio Streaming Foundation
+### Step 2: Audio Streaming Foundation (TDD Approach)
+- [ ] Write tests for streaming URL extraction interface
 - [ ] Research streaming URL extraction from SoundCloud tracks
+- [ ] Implement URL extraction to pass tests
+- [ ] Write tests for audio player interface
 - [ ] Add Beep audio library dependency
-- [ ] Implement basic audio playback from URLs
-- [ ] Test streaming with actual SoundCloud tracks
+- [ ] Implement basic audio playback to pass tests
+- [ ] Write integration tests for streaming workflow
+- [ ] Test with actual SoundCloud tracks and refine
+- [ ] Write tests for CLI play/pause/stop commands
 - [ ] Add play/pause/stop controls via CLI flags
 
-### Step 3: Core TUI Framework
+### Step 3: Core TUI Framework (TDD Approach)
+- [ ] Write tests for TUI component interfaces
 - [ ] Add Bubble Tea and Lipgloss dependencies
-- [ ] Design main application layout (search, player, queue)
-- [ ] Implement search interface component
-- [ ] Create track listing component with navigation
-- [ ] Add basic vim-style keyboard shortcuts
+- [ ] Write tests for main application model updates
+- [ ] Design and implement main application layout
+- [ ] Write tests for search interface component
+- [ ] Implement search interface component to pass tests
+- [ ] Write tests for track listing component with navigation
+- [ ] Create track listing component to pass tests
+- [ ] Write tests for keyboard shortcut handling
+- [ ] Add basic vim-style keyboard shortcuts to pass tests
 
-### Step 4: Interactive Player
-- [ ] Integrate audio streaming into TUI
-- [ ] Add progress bar and time display
-- [ ] Implement volume controls
-- [ ] Add track metadata display panel
-- [ ] Handle audio state management
+### Step 4: Interactive Player (TDD Approach)
+- [ ] Write tests for audio integration with TUI
+- [ ] Integrate audio streaming into TUI to pass tests
+- [ ] Write tests for progress bar and time display
+- [ ] Implement progress bar and time display to pass tests
+- [ ] Write tests for volume controls
+- [ ] Implement volume controls to pass tests
+- [ ] Write tests for track metadata display panel
+- [ ] Add track metadata display panel to pass tests
+- [ ] Write tests for audio state management
+- [ ] Handle audio state management to pass tests
 
-### Step 5: Enhanced Features
-- [ ] Track queueing system
-- [ ] Playlist support and management
-- [ ] Search result pagination
-- [ ] Keyboard shortcuts reference
-- [ ] Configuration file support
+### Step 5: Enhanced Features (TDD Approach)
+- [ ] Write tests for track queueing system
+- [ ] Implement track queueing system to pass tests
+- [ ] Write tests for playlist support and management
+- [ ] Implement playlist support to pass tests
+- [ ] Write tests for search result pagination
+- [ ] Implement search result pagination to pass tests
+- [ ] Write tests for keyboard shortcuts reference
+- [ ] Add keyboard shortcuts reference to pass tests
+- [ ] Write tests for configuration file support
+- [ ] Implement configuration file support to pass tests
 
-### Step 6: Polish and Testing
-- [ ] Comprehensive error handling
-- [ ] Performance optimization and caching
-- [ ] User experience improvements
-- [ ] Unit tests for core functionality
-- [ ] Documentation and usage guide
+### Step 6: Polish and Integration Testing
+- [ ] Write comprehensive integration tests
+- [ ] Add end-to-end testing scenarios
+- [ ] Write performance tests for audio streaming
+- [ ] Performance optimization based on test results
+- [ ] Write tests for error handling edge cases
+- [ ] Improve error handling to pass tests
+- [ ] User experience testing and improvements
+- [ ] Documentation and usage guide with examples
 
 ## Technical Architecture
 
@@ -160,19 +183,22 @@ type Player struct {
 - [x] CLI interface with help and disclaimers
 - [ ] Play/pause audio controls (Next: Phase 2)
 
-### Phase 2: Audio Streaming & TUI
-- [ ] Audio playback from streaming URLs
-- [ ] Basic TUI interface with Bubble Tea
-- [ ] Play/pause/stop controls
-- [ ] Progress bar and time display
-- [ ] Track metadata in TUI
+### Phase 2: Audio Streaming & TUI (TDD)
+- [ ] Write tests for audio streaming interfaces
+- [ ] Audio playback from streaming URLs (test-driven)
+- [ ] Write tests for TUI components
+- [ ] Basic TUI interface with Bubble Tea (test-driven)
+- [ ] Write tests for player controls
+- [ ] Play/pause/stop controls (test-driven)
+- [ ] Progress bar and time display with tests
+- [ ] Track metadata in TUI with component tests
 
-### Phase 3: Enhanced Experience  
-- [ ] Playlist creation and management
-- [ ] Track queueing and autoplay
-- [ ] Progress seeking
-- [ ] Volume control
-- [ ] Advanced keyboard shortcuts
+### Phase 3: Enhanced Experience (TDD)
+- [ ] Test-driven playlist creation and management
+- [ ] Test-driven track queueing and autoplay
+- [ ] Progress seeking with comprehensive tests
+- [ ] Volume control with interface tests
+- [ ] Advanced keyboard shortcuts with behavior tests
 
 ### Phase 4: Advanced Features
 - [ ] User profiles and likes
@@ -216,3 +242,40 @@ Use at your own discretion and risk.
 ```
 
 This approach allows us to build a functional SoundCloud TUI while being transparent about the legal considerations and technical limitations.
+
+## Test-Driven Development Methodology
+
+This project follows TDD principles for better code quality and design:
+
+### TDD Cycle for Each Feature
+1. **Write failing tests** - Define expected behavior first
+2. **Write minimal code** - Make tests pass with simplest implementation  
+3. **Refactor** - Improve code while keeping tests green
+4. **Repeat** - Continue for next feature or improvement
+
+### Testing Strategy
+- **Unit Tests**: Individual functions and methods
+- **Component Tests**: TUI components and their interactions
+- **Integration Tests**: SoundCloud API integration and audio streaming
+- **End-to-End Tests**: Complete user workflows
+
+### Test Structure
+```
+tests/
+├── unit/
+│   ├── soundcloud/          # SoundCloud client tests
+│   ├── audio/               # Audio player tests
+│   └── ui/                  # TUI component tests
+├── integration/
+│   ├── api_test.go          # API integration tests
+│   └── streaming_test.go    # Audio streaming tests
+└── e2e/
+    └── workflows_test.go    # Complete user scenarios
+```
+
+### Benefits of TDD Approach
+- ✅ **Better Design**: Tests force thinking about interfaces first
+- ✅ **Higher Quality**: Catches bugs early in development cycle
+- ✅ **Documentation**: Tests serve as living documentation
+- ✅ **Confidence**: Safe refactoring with comprehensive test coverage
+- ✅ **Debugging**: Tests help isolate and fix issues quickly
