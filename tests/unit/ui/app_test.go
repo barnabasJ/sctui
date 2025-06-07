@@ -12,7 +12,7 @@ import (
 
 func TestApp_NewApp(t *testing.T) {
 	application := app.NewApp()
-	
+
 	require.NotNil(t, application)
 	assert.Equal(t, app.ViewSearch, application.GetCurrentView())
 	assert.False(t, application.IsQuitting())
@@ -20,11 +20,11 @@ func TestApp_NewApp(t *testing.T) {
 
 func TestApp_Navigation(t *testing.T) {
 	tests := []struct {
-		name           string
-		currentView    app.ViewType
-		keyPressed     string
-		expectedView   app.ViewType
-		shouldChange   bool
+		name         string
+		currentView  app.ViewType
+		keyPressed   string
+		expectedView app.ViewType
+		shouldChange bool
 	}{
 		{
 			name:         "tab from search to player",
@@ -67,10 +67,10 @@ func TestApp_Navigation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			application := app.NewApp()
 			application.SetCurrentView(tt.currentView)
-			
+
 			initialView := application.GetCurrentView()
 			assert.Equal(t, tt.currentView, initialView)
-			
+
 			// Simulate key press
 			var msg tea.Msg
 			switch tt.keyPressed {
@@ -81,10 +81,10 @@ func TestApp_Navigation(t *testing.T) {
 			default:
 				msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.keyPressed)}
 			}
-			
+
 			updatedApp, _ := application.Update(msg)
 			newApp := updatedApp.(*app.App)
-			
+
 			if tt.shouldChange {
 				assert.Equal(t, tt.expectedView, newApp.GetCurrentView())
 				assert.NotEqual(t, initialView, newApp.GetCurrentView())
@@ -97,25 +97,25 @@ func TestApp_Navigation(t *testing.T) {
 
 func TestApp_QuitHandling(t *testing.T) {
 	application := app.NewApp()
-	
+
 	// Test Ctrl+C quits
 	quitMsg := tea.KeyMsg{Type: tea.KeyCtrlC}
 	updatedApp, cmd := application.Update(quitMsg)
-	
+
 	newApp := updatedApp.(*app.App)
 	assert.True(t, newApp.IsQuitting())
-	
+
 	// Should return quit command
 	assert.NotNil(t, cmd)
 }
 
 func TestApp_WindowSizeHandling(t *testing.T) {
 	application := app.NewApp()
-	
+
 	// Test window size message
 	sizeMsg := tea.WindowSizeMsg{Width: 120, Height: 40}
 	updatedApp, _ := application.Update(sizeMsg)
-	
+
 	newApp := updatedApp.(*app.App)
 	width, height := newApp.GetSize()
 	assert.Equal(t, 120, width)
@@ -141,14 +141,14 @@ func TestApp_ViewTypes(t *testing.T) {
 
 func TestApp_BubbleTeaIntegration(t *testing.T) {
 	application := app.NewApp()
-	
+
 	// Test that app implements tea.Model interface
 	var _ tea.Model = application
-	
+
 	// Test Init returns expected command
 	cmd := application.Init()
 	assert.NotNil(t, cmd) // Should return some initialization command
-	
+
 	// Test View returns non-empty string
 	view := application.View()
 	assert.NotEmpty(t, view)
@@ -157,15 +157,15 @@ func TestApp_BubbleTeaIntegration(t *testing.T) {
 
 func TestApp_StateManagement(t *testing.T) {
 	application := app.NewApp()
-	
+
 	// Test initial state
 	assert.Equal(t, app.ViewSearch, application.GetCurrentView())
 	assert.False(t, application.IsQuitting())
-	
+
 	// Test state changes are persistent
 	application.SetCurrentView(app.ViewPlayer)
 	assert.Equal(t, app.ViewPlayer, application.GetCurrentView())
-	
+
 	// Test multiple view changes
 	views := []app.ViewType{app.ViewQueue, app.ViewSearch, app.ViewPlayer}
 	for _, view := range views {
@@ -176,15 +176,16 @@ func TestApp_StateManagement(t *testing.T) {
 
 func TestApp_ErrorHandling(t *testing.T) {
 	application := app.NewApp()
-	
+
 	// Test with nil message
 	updatedApp, cmd := application.Update(nil)
 	assert.NotNil(t, updatedApp)
 	assert.Nil(t, cmd) // Should handle gracefully
-	
+
 	// Test with unknown message type
 	unknownMsg := "unknown message"
 	updatedApp, cmd = application.Update(unknownMsg)
 	assert.NotNil(t, updatedApp)
 	// Should not crash and return the app
 }
+

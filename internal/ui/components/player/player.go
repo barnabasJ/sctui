@@ -114,6 +114,10 @@ func (p *PlayerComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ProgressUpdateMsg:
 		p.position = msg.Position
 		p.duration = msg.Duration
+		// Sync state with audio player if available
+		if p.audioPlayer != nil {
+			p.syncStateWithAudioPlayer()
+		}
 		return p, p.tickProgress()
 		
 	case tea.WindowSizeMsg:
@@ -121,11 +125,16 @@ func (p *PlayerComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		p.height = msg.Height
 		return p, nil
 		
+	case error:
+		// Handle error messages from commands
+		return p.handleError(msg)
+		
 	default:
 		// Handle progress updates from ticker
 		if p.audioPlayer != nil && p.state == StatePlaying {
 			p.position = p.audioPlayer.GetPosition()
 			p.duration = p.audioPlayer.GetDuration()
+			p.syncStateWithAudioPlayer()
 			return p, p.tickProgress()
 		}
 	}
@@ -196,6 +205,7 @@ func (p *PlayerComponent) togglePlayPause() (tea.Model, tea.Cmd) {
 	
 	switch p.audioPlayer.GetState() {
 	case audio.StatePlaying:
+		p.state = StatePaused
 		return p, func() tea.Msg {
 			err := p.audioPlayer.Pause()
 			if err != nil {
@@ -207,8 +217,11 @@ func (p *PlayerComponent) togglePlayPause() (tea.Model, tea.Cmd) {
 			}
 		}
 	case audio.StatePaused:
-		// Resume by calling Play again with the current stream
-		p.state = StatePlaying
+		// Resume playback - need to get the stream URL again
+		if p.currentTrack != nil {
+			p.state = StateLoading
+			return p, p.extractStreamURL(p.currentTrack.ID)
+		}
 		return p, nil
 	default:
 		return p, nil
@@ -264,6 +277,11 @@ func (p *PlayerComponent) seekForward() (tea.Model, tea.Cmd) {
 // increaseVolume increases volume by 10%
 func (p *PlayerComponent) increaseVolume() (tea.Model, tea.Cmd) {
 	if p.audioPlayer == nil {
+		// Even without audio player, update local volume for UI feedback
+		p.volume = p.volume + 0.1
+		if p.volume > 1.0 {
+			p.volume = 1.0
+		}
 		return p, nil
 	}
 	
@@ -277,6 +295,8 @@ func (p *PlayerComponent) increaseVolume() (tea.Model, tea.Cmd) {
 		if err != nil {
 			return fmt.Errorf("failed to set volume: %w", err)
 		}
+		// Update local volume tracking
+		p.volume = p.audioPlayer.GetVolume()
 		return ProgressUpdateMsg{
 			Position: p.audioPlayer.GetPosition(),
 			Duration: p.audioPlayer.GetDuration(),
@@ -287,6 +307,11 @@ func (p *PlayerComponent) increaseVolume() (tea.Model, tea.Cmd) {
 // decreaseVolume decreases volume by 10%
 func (p *PlayerComponent) decreaseVolume() (tea.Model, tea.Cmd) {
 	if p.audioPlayer == nil {
+		// Even without audio player, update local volume for UI feedback
+		p.volume = p.volume - 0.1
+		if p.volume < 0.0 {
+			p.volume = 0.0
+		}
 		return p, nil
 	}
 	
@@ -300,6 +325,8 @@ func (p *PlayerComponent) decreaseVolume() (tea.Model, tea.Cmd) {
 		if err != nil {
 			return fmt.Errorf("failed to set volume: %w", err)
 		}
+		// Update local volume tracking
+		p.volume = p.audioPlayer.GetVolume()
 		return ProgressUpdateMsg{
 			Position: p.audioPlayer.GetPosition(),
 			Duration: p.audioPlayer.GetDuration(),
@@ -350,6 +377,39 @@ func (p *PlayerComponent) tickProgress() tea.Cmd {
 		}
 		return nil
 	})
+}
+
+// syncStateWithAudioPlayer synchronizes the UI state with the audio player state
+func (p *PlayerComponent) syncStateWithAudioPlayer() {
+	if p.audioPlayer == nil {
+		return
+	}
+
+	audioState := p.audioPlayer.GetState()
+	switch audioState {
+	case audio.StatePlaying:
+		if p.state != StatePlaying && p.state != StateLoading {
+			p.state = StatePlaying
+		}
+	case audio.StatePaused:
+		if p.state == StatePlaying {
+			p.state = StatePaused
+		}
+	case audio.StateStopped:
+		if p.state == StatePlaying || p.state == StatePaused {
+			p.state = StateIdle
+		}
+	}
+
+	// Update volume to stay in sync
+	p.volume = p.audioPlayer.GetVolume()
+}
+
+// handleError handles error messages and transitions to error state
+func (p *PlayerComponent) handleError(err error) (tea.Model, tea.Cmd) {
+	p.state = StateError
+	p.error = err
+	return p, nil
 }
 
 // View renders the player component
@@ -407,9 +467,12 @@ func (p *PlayerComponent) renderPlayingView() string {
 		return p.renderIdleView()
 	}
 	
-	// Track info
-	title := styles.TrackTitleStyle.Render(p.currentTrack.Title)
-	artist := styles.TrackArtistStyle.Render(p.currentTrack.Artist())
+	// Track info with enhanced metadata display
+	metadata := styles.RenderMetadataPanel(
+		p.currentTrack.Title,
+		p.currentTrack.Artist(),
+		p.width-8, // Account for player panel padding
+	)
 	
 	// Status
 	var status string
@@ -434,17 +497,26 @@ func (p *PlayerComponent) renderPlayingView() string {
 		progress := float64(p.position) / float64(p.duration)
 		progressBar = styles.RenderProgressBar(p.width-12, progress)
 		
-		posStr := formatDuration(p.position)
-		durStr := formatDuration(p.duration)
+		posStr := styles.FormatDurationFromTime(p.position)
+		durStr := styles.FormatDurationFromTime(p.duration)
 		timeInfo = fmt.Sprintf("%s / %s", posStr, durStr)
 	} else {
 		progressBar = styles.RenderProgressBar(p.width-12, 0)
-		timeInfo = "0:00 / 0:00"
+		timeInfo = styles.FormatDurationFromTime(0) + " / " + styles.FormatDurationFromTime(0)
 	}
 	
-	// Volume info
+	// Volume info with appropriate icon
 	volumePercent := int(p.volume * 100)
-	volumeInfo := fmt.Sprintf("🔊 %d%%", volumePercent)
+	var volumeIcon string
+	switch {
+	case p.volume == 0:
+		volumeIcon = "🔇" // Muted
+	case p.volume < 0.5:
+		volumeIcon = "🔉" // Low volume
+	default:
+		volumeIcon = "🔊" // High volume
+	}
+	volumeInfo := fmt.Sprintf("%s %d%%", volumeIcon, volumePercent)
 	
 	// Controls help
 	controls := styles.HelpStyle.Render("Space: Play/Pause • ←→: Seek • +/-: Volume")
@@ -452,8 +524,7 @@ func (p *PlayerComponent) renderPlayingView() string {
 	// Combine everything
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
-		title,
-		artist,
+		metadata,
 		"",
 		status,
 		"",

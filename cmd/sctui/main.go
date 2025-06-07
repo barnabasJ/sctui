@@ -6,7 +6,9 @@ import (
 	"log"
 	"os"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"soundcloud-tui/internal/soundcloud"
+	"soundcloud-tui/internal/ui/app"
 )
 
 func main() {
@@ -44,9 +46,13 @@ func main() {
 		return
 	}
 
-	// TODO: Start TUI application
-	fmt.Println("SoundCloud TUI - Interactive mode coming soon!")
-	fmt.Println("Try: ./sctui -search \"your query\" or ./sctui -help")
+	// Start TUI application
+	application := app.NewApp()
+	program := tea.NewProgram(application, tea.WithAltScreen())
+	
+	if _, err := program.Run(); err != nil {
+		log.Fatalf("Failed to start TUI: %v", err)
+	}
 }
 
 func searchTracks(client *soundcloud.Client, query string) error {

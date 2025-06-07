@@ -1,6 +1,10 @@
 package styles
 
 import (
+	"fmt"
+	"strings"
+	"time"
+
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -172,13 +176,29 @@ func RenderProgressBar(width int, progress float64) string {
 		return ""
 	}
 	
+	// Clamp progress between 0 and 1
+	if progress < 0 {
+		progress = 0
+	}
+	if progress > 1 {
+		progress = 1
+	}
+	
 	fillWidth := int(float64(width) * progress)
 	if fillWidth > width {
 		fillWidth = width
 	}
 	
-	filled := ProgressBarFillStyle.Render(lipgloss.Place(fillWidth, 1, lipgloss.Left, lipgloss.Center, ""))
-	empty := ProgressBarStyle.Render(lipgloss.Place(width-fillWidth, 1, lipgloss.Left, lipgloss.Center, ""))
+	// Use Unicode block characters for smoother progress bar
+	filled := lipgloss.NewStyle().
+		Background(PrimaryColor).
+		Foreground(PrimaryColor).
+		Render(strings.Repeat("█", fillWidth))
+	
+	empty := lipgloss.NewStyle().
+		Background(SecondaryColor).
+		Foreground(SecondaryColor).
+		Render(strings.Repeat("█", width-fillWidth))
 	
 	return lipgloss.JoinHorizontal(lipgloss.Left, filled, empty)
 }
@@ -195,12 +215,42 @@ func FormatDuration(durationMs int64) string {
 	
 	return lipgloss.NewStyle().
 		Foreground(MutedColor).
-		Render(lipgloss.PlaceHorizontal(5, lipgloss.Right, 
-			lipgloss.JoinHorizontal(lipgloss.Left, 
-				lipgloss.PlaceHorizontal(2, lipgloss.Right, lipgloss.NewStyle().Render(string(rune(minutes+'0')))),
+		Render(formatTime(int(minutes), int(seconds)))
+}
+
+// FormatDurationFromTime formats a time.Duration to MM:SS format
+func FormatDurationFromTime(d time.Duration) string {
+	if d <= 0 {
+		return "0:00"
+	}
+	
+	totalSeconds := int(d.Seconds())
+	minutes := totalSeconds / 60
+	seconds := totalSeconds % 60
+	
+	return lipgloss.NewStyle().
+		Foreground(MutedColor).
+		Render(formatTime(minutes, seconds))
+}
+
+// formatTime is a helper to format minutes and seconds consistently
+func formatTime(minutes, seconds int) string {
+	if minutes >= 100 {
+		// For very long tracks, show minutes without padding
+		return lipgloss.NewStyle().Render(
+			lipgloss.JoinHorizontal(lipgloss.Left,
+				lipgloss.NewStyle().Render(fmt.Sprintf("%d", minutes)),
 				":",
-				lipgloss.PlaceHorizontal(2, lipgloss.Left, lipgloss.NewStyle().Render(string(rune(seconds/10+'0'))+string(rune(seconds%10+'0')))),
-			)))
+				lipgloss.NewStyle().Render(fmt.Sprintf("%02d", seconds)),
+			))
+	}
+	
+	return lipgloss.NewStyle().Render(
+		lipgloss.JoinHorizontal(lipgloss.Left,
+			lipgloss.NewStyle().Render(fmt.Sprintf("%d", minutes)),
+			":",
+			lipgloss.NewStyle().Render(fmt.Sprintf("%02d", seconds)),
+		))
 }
 
 // TruncateText truncates text to fit within the specified width
@@ -214,4 +264,39 @@ func TruncateText(text string, width int) string {
 	}
 	
 	return text[:width-3] + "..."
+}
+
+// RenderTrackTitle renders a track title with appropriate styling and truncation
+func RenderTrackTitle(title string, maxWidth int) string {
+	if title == "" {
+		title = "Unknown Track"
+	}
+	
+	truncated := TruncateText(title, maxWidth)
+	return TrackTitleStyle.Render(truncated)
+}
+
+// RenderArtistName renders an artist name with appropriate styling and truncation
+func RenderArtistName(artistName string, maxWidth int) string {
+	if artistName == "" {
+		artistName = "Unknown Artist"
+	}
+	
+	truncated := TruncateText(artistName, maxWidth)
+	return TrackArtistStyle.Render(truncated)
+}
+
+// RenderMetadataPanel renders a complete metadata panel for a track
+func RenderMetadataPanel(title, artist string, width int) string {
+	maxTitleWidth := width - 4 // Account for padding/borders
+	maxArtistWidth := width - 4
+	
+	titleLine := RenderTrackTitle(title, maxTitleWidth)
+	artistLine := RenderArtistName(artist, maxArtistWidth)
+	
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		titleLine,
+		artistLine,
+	)
 }

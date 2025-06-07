@@ -18,6 +18,44 @@ Use the reverse-engineered SoundCloud API library to build a legitimate TUI clie
 - ✅ Open source educational implementation
 - 📝 Users assume responsibility for ToS compliance
 
+## Current Status (December 2025)
+
+**✅ Working:** Complete TUI application with search and navigation
+**🚧 Next:** Real audio playback implementation 
+**🎯 Goal:** Functional SoundCloud music player
+
+**How to Run:**
+```bash
+# Build the TUI (uses Makefile)
+make build
+
+# Run the interactive TUI
+./bin/sctui
+
+# Or run example search (CLI mode)
+make run
+
+# Run tests
+make test
+
+# Clean build artifacts
+make clean
+
+# Use Tab/Shift+Tab to navigate views
+# Search for tracks in Search view
+# Select tracks to load in Player view
+# Player shows UI but doesn't play audio yet
+```
+
+**What You'll See:**
+- Modern TUI with Search/Player/Queue tabs
+- Search functionality with track results
+- Player interface with progress bar and controls
+- Volume controls with emoji indicators
+- Keyboard shortcuts: Tab (next view), Space (play/pause), +/- (volume)
+
+**Missing Piece:** Real audio playback (Step 5 implementation)
+
 ## Implementation Plan
 
 ### Step 1: Setup and Basic Integration ✅ COMPLETED
@@ -50,43 +88,81 @@ Use the reverse-engineered SoundCloud API library to build a legitimate TUI clie
 - Comprehensive ToS disclaimer for users
 - Error handling and user-friendly output
 
-### Step 2: Audio Streaming Foundation (TDD Approach)
-- [ ] Write tests for streaming URL extraction interface
-- [ ] Research streaming URL extraction from SoundCloud tracks
-- [ ] Implement URL extraction to pass tests
-- [ ] Write tests for audio player interface
-- [ ] Add Beep audio library dependency
-- [ ] Implement basic audio playback to pass tests
-- [ ] Write integration tests for streaming workflow
-- [ ] Test with actual SoundCloud tracks and refine
-- [ ] Write tests for CLI play/pause/stop commands
-- [ ] Add play/pause/stop controls via CLI flags
+### Step 2: Audio Streaming Foundation (TDD Approach) ✅ COMPLETED
+- [x] Write tests for streaming URL extraction interface
+- [x] Research streaming URL extraction from SoundCloud tracks
+- [x] Implement URL extraction to pass tests
+- [x] Write tests for audio player interface
+- [x] Add Beep audio library dependency
+- [x] Implement basic audio playback to pass tests
+- [x] Write integration tests for streaming workflow
+- [x] Test with actual SoundCloud tracks and refine
+- [x] Write tests for CLI play/pause/stop commands
+- [x] Add play/pause/stop controls via CLI flags
 
-### Step 3: Core TUI Framework (TDD Approach)
-- [ ] Write tests for TUI component interfaces
-- [ ] Add Bubble Tea and Lipgloss dependencies
-- [ ] Write tests for main application model updates
-- [ ] Design and implement main application layout
-- [ ] Write tests for search interface component
-- [ ] Implement search interface component to pass tests
-- [ ] Write tests for track listing component with navigation
-- [ ] Create track listing component to pass tests
-- [ ] Write tests for keyboard shortcut handling
-- [ ] Add basic vim-style keyboard shortcuts to pass tests
+### Step 3: Core TUI Framework (TDD Approach) ✅ COMPLETED
+- [x] Write tests for TUI component interfaces
+- [x] Add Bubble Tea and Lipgloss dependencies
+- [x] Write tests for main application model updates
+- [x] Design and implement main application layout
+- [x] Write tests for search interface component
+- [x] Implement search interface component to pass tests
+- [x] Write tests for track listing component with navigation
+- [x] Create track listing component to pass tests
+- [x] Write tests for keyboard shortcut handling
+- [x] Add basic vim-style keyboard shortcuts to pass tests
 
-### Step 4: Interactive Player (TDD Approach)
-- [ ] Write tests for audio integration with TUI
-- [ ] Integrate audio streaming into TUI to pass tests
-- [ ] Write tests for progress bar and time display
-- [ ] Implement progress bar and time display to pass tests
-- [ ] Write tests for volume controls
-- [ ] Implement volume controls to pass tests
-- [ ] Write tests for track metadata display panel
-- [ ] Add track metadata display panel to pass tests
-- [ ] Write tests for audio state management
-- [ ] Handle audio state management to pass tests
+### Step 4: Interactive Player (TDD Approach) ✅ COMPLETED
+- [x] Write tests for audio integration with TUI
+- [x] Integrate audio streaming into TUI to pass tests
+- [x] Write tests for progress bar and time display
+- [x] Implement progress bar and time display to pass tests
+- [x] Write tests for volume controls
+- [x] Implement volume controls to pass tests
+- [x] Write tests for track metadata display panel
+- [x] Add track metadata display panel to pass tests
+- [x] Write tests for audio state management
+- [x] Handle audio state management to pass tests
 
-### Step 5: Enhanced Features (TDD Approach)
+**Status**: ✅ TUI Framework Complete - Audio Implementation Needed
+
+**What Works:**
+- Complete TUI interface with Search/Player/Queue views
+- Navigation with Tab/Shift+Tab between views
+- Search functionality with track selection
+- Player component with mock audio controls
+- Volume controls with visual feedback (🔇🔉🔊)
+- Progress bar with Unicode block characters
+- Track metadata display with text truncation
+- State management and error handling
+
+**Current Limitation:**
+- Audio player is mock implementation only
+- Stream extractor returns fake URLs
+- No actual audio playback functionality
+
+### Step 5: Real Audio Implementation (TDD Approach)
+- [ ] Write tests for real SoundCloud stream URL extraction
+- [ ] Implement real stream URL extraction using SoundCloud API
+- [ ] Write tests for Beep audio library integration
+- [ ] Implement real BeepPlayer with actual audio playback
+- [ ] Write tests for audio format support (MP3, M4A, etc.)
+- [ ] Add audio format detection and decoding
+- [ ] Write tests for streaming audio playback (no full download)
+- [ ] Implement streaming audio to reduce memory usage
+- [ ] Write tests for audio seeking and position tracking
+- [ ] Implement real seeking with time position updates
+- [ ] Write tests for volume control integration
+- [ ] Connect volume controls to actual audio output
+
+**Technical Tasks:**
+1. **Stream URL Extraction**: Get real playable URLs from SoundCloud's transcoding API
+2. **Beep Integration**: Implement audio decoding (MP3/M4A) and playback
+3. **Streaming Playback**: Stream audio instead of downloading full files
+4. **Position Tracking**: Real-time progress updates during playback
+5. **Volume Control**: Connect UI volume to audio output volume
+
+### Step 6: Enhanced Features (TDD Approach)
 - [ ] Write tests for track queueing system
 - [ ] Implement track queueing system to pass tests
 - [ ] Write tests for playlist support and management
@@ -98,7 +174,7 @@ Use the reverse-engineered SoundCloud API library to build a legitimate TUI clie
 - [ ] Write tests for configuration file support
 - [ ] Implement configuration file support to pass tests
 
-### Step 6: Polish and Integration Testing
+### Step 7: Polish and Integration Testing
 - [ ] Write comprehensive integration tests
 - [ ] Add end-to-end testing scenarios
 - [ ] Write performance tests for audio streaming
