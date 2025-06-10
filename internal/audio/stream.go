@@ -35,6 +35,12 @@ type SoundCloudAPI interface {
 	GetTrackInfo(options soundcloudapi.GetTrackInfoOptions) ([]soundcloudapi.Track, error)
 }
 
+// RealSoundCloudAPI interface includes methods for actual streaming URL extraction
+type RealSoundCloudAPI interface {
+	GetTrackInfoWithOptions(options soundcloudapi.GetTrackInfoOptions) ([]soundcloudapi.Track, error)
+	GetDownloadURL(trackURL string, format string) (string, error)
+}
+
 // SoundCloudStreamExtractor implements StreamExtractor for SoundCloud
 type SoundCloudStreamExtractor struct {
 	api SoundCloudAPI
@@ -70,6 +76,211 @@ func NewSoundCloudStreamExtractorWithAPI(api SoundCloudAPI) *SoundCloudStreamExt
 	return &SoundCloudStreamExtractor{
 		api: api,
 	}
+}
+
+// RealSoundCloudStreamExtractor implements StreamExtractor with actual API calls
+type RealSoundCloudStreamExtractor struct {
+	api RealSoundCloudAPI
+}
+
+// NewRealSoundCloudStreamExtractor creates a new real SoundCloud stream extractor
+func NewRealSoundCloudStreamExtractor(api RealSoundCloudAPI) *RealSoundCloudStreamExtractor {
+	return &RealSoundCloudStreamExtractor{
+		api: api,
+	}
+}
+
+// ExtractStreamURL extracts real streaming URLs from SoundCloud using GetDownloadURL
+func (e *RealSoundCloudStreamExtractor) ExtractStreamURL(ctx context.Context, trackID int64) (*StreamInfo, error) {
+	// Check for context cancellation
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	
+	// Validate inputs
+	if e.api == nil {
+		return nil, fmt.Errorf("SoundCloud API client not initialized")
+	}
+	
+	if trackID <= 0 {
+		return nil, fmt.Errorf("invalid track ID: %d", trackID)
+	}
+	
+	// Get track information to obtain permalink URL
+	tracks, err := e.api.GetTrackInfoWithOptions(soundcloudapi.GetTrackInfoOptions{
+		ID: []int64{trackID},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get track info: %w", err)
+	}
+	
+	if len(tracks) == 0 {
+		return nil, fmt.Errorf("track not found: %d", trackID)
+	}
+	
+	track := tracks[0]
+	
+	// Check for context cancellation
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	
+	// Check if transcodings are available
+	if len(track.Media.Transcodings) == 0 {
+		return nil, fmt.Errorf("no transcodings available for track %d", trackID)
+	}
+	
+	// Determine best format - prefer progressive over HLS for better audio player compatibility
+	var preferredFormat string
+	var selectedTranscoding *soundcloudapi.Transcoding
+	
+	// First pass: look for progressive format
+	for _, transcoding := range track.Media.Transcodings {
+		if transcoding.Format.Protocol == "progressive" {
+			preferredFormat = "progressive"
+			selectedTranscoding = &transcoding
+			break
+		}
+	}
+	
+	// Second pass: fallback to HLS if no progressive available
+	if selectedTranscoding == nil {
+		for _, transcoding := range track.Media.Transcodings {
+			if transcoding.Format.Protocol == "hls" {
+				preferredFormat = "hls"
+				selectedTranscoding = &transcoding
+				break
+			}
+		}
+	}
+	
+	if selectedTranscoding == nil {
+		return nil, fmt.Errorf("no supported transcoding formats available for track %d", trackID)
+	}
+	
+	// Get the actual download URL using the SoundCloud API
+	streamURL, err := e.api.GetDownloadURL(track.PermalinkURL, preferredFormat)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get download URL: %w", err)
+	}
+	
+	// Determine format from transcoding
+	format := "mp3" // Default
+	if selectedTranscoding.Format.MimeType == "audio/ogg" {
+		format = "ogg"
+	} else if selectedTranscoding.Format.Protocol == "hls" {
+		format = "hls"
+	}
+	
+	// Create StreamInfo
+	streamInfo := &StreamInfo{
+		URL:      streamURL,
+		Format:   format,
+		Quality:  preferredFormat,
+		Duration: track.DurationMS,
+	}
+	
+	return streamInfo, nil
+}
+
+// GetAvailableQualities returns available qualities for track using real API
+func (e *RealSoundCloudStreamExtractor) GetAvailableQualities(ctx context.Context, trackID int64) ([]string, error) {
+	// Check for context cancellation
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	
+	// Validate inputs
+	if e.api == nil {
+		return nil, fmt.Errorf("SoundCloud API client not initialized")
+	}
+	
+	if trackID <= 0 {
+		return nil, fmt.Errorf("invalid track ID: %d", trackID)
+	}
+	
+	// Get track information
+	tracks, err := e.api.GetTrackInfoWithOptions(soundcloudapi.GetTrackInfoOptions{
+		ID: []int64{trackID},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get track info: %w", err)
+	}
+	
+	if len(tracks) == 0 {
+		return nil, fmt.Errorf("track not found: %d", trackID)
+	}
+	
+	track := tracks[0]
+	
+	// Extract available qualities from transcodings
+	qualityMap := make(map[string]bool)
+	
+	for _, transcoding := range track.Media.Transcodings {
+		protocol := transcoding.Format.Protocol
+		if protocol == "progressive" || protocol == "hls" {
+			qualityMap[protocol] = true
+		}
+	}
+	
+	// Convert map to slice
+	qualities := make([]string, 0, len(qualityMap))
+	for quality := range qualityMap {
+		qualities = append(qualities, quality)
+	}
+	
+	// Ensure at least one quality is returned
+	if len(qualities) == 0 {
+		qualities = []string{"progressive", "hls"} // Default to both qualities
+	}
+	
+	return qualities, nil
+}
+
+// ValidateStreamURL checks if stream URL is valid and not expired
+func (e *RealSoundCloudStreamExtractor) ValidateStreamURL(ctx context.Context, streamURL string) (bool, error) {
+	// Check for context cancellation
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	default:
+	}
+	
+	// Validate input
+	if streamURL == "" {
+		return false, fmt.Errorf("stream URL cannot be empty")
+	}
+	
+	// Parse URL to check if it's valid
+	parsedURL, err := url.Parse(streamURL)
+	if err != nil {
+		return false, nil // Invalid URL format, but not an error
+	}
+	
+	// Check if it's a valid HTTP/HTTPS URL
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return false, nil // Invalid scheme
+	}
+	
+	// Check if it's a SoundCloud CloudFront URL
+	if !strings.Contains(parsedURL.Host, "sndcdn.com") {
+		return false, nil // Not a SoundCloud URL
+	}
+	
+	// Check for required authentication parameters
+	queryParams := parsedURL.Query()
+	if !queryParams.Has("Policy") || !queryParams.Has("Signature") || !queryParams.Has("Key-Pair-Id") {
+		return false, nil // Missing authentication parameters
+	}
+	
+	// URL passes basic validation
+	return true, nil
 }
 
 // ExtractStreamURL extracts streaming URL from SoundCloud track

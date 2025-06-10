@@ -67,6 +67,7 @@ func (u User) FullName() string {
 type ClientInterface interface {
 	Search(query string) ([]Track, error)
 	GetTrackInfo(url string) (*Track, error)
+	GetDownloadURL(trackURL string, format string) (string, error)
 }
 
 // NewClient creates a new SoundCloud client
@@ -148,4 +149,25 @@ func (c *Client) Search(query string) ([]Track, error) {
 	}
 
 	return result, nil
+}
+
+// GetDownloadURL gets a downloadable/streamable URL for a track
+func (c *Client) GetDownloadURL(trackURL string, format string) (string, error) {
+	// Use the SoundCloud API's GetDownloadURL method
+	downloadURL, err := c.api.GetDownloadURL(trackURL, format)
+	if err != nil {
+		return "", fmt.Errorf("failed to get download URL: %w", err)
+	}
+	
+	return downloadURL, nil
+}
+
+// GetTrackInfoWithOptions gets track info using SoundCloud API options (for RealSoundCloudAPI compatibility)
+func (c *Client) GetTrackInfoWithOptions(options soundcloudapi.GetTrackInfoOptions) ([]soundcloudapi.Track, error) {
+	tracks, err := c.api.GetTrackInfo(options)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get track info: %w", err)
+	}
+	
+	return tracks, nil
 }

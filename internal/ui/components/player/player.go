@@ -205,7 +205,6 @@ func (p *PlayerComponent) togglePlayPause() (tea.Model, tea.Cmd) {
 	
 	switch p.audioPlayer.GetState() {
 	case audio.StatePlaying:
-		p.state = StatePaused
 		return p, func() tea.Msg {
 			err := p.audioPlayer.Pause()
 			if err != nil {
@@ -217,7 +216,7 @@ func (p *PlayerComponent) togglePlayPause() (tea.Model, tea.Cmd) {
 			}
 		}
 	case audio.StatePaused:
-		// Resume playback - need to get the stream URL again
+		// For a paused state, we need to restart the stream since Beep doesn't support resume
 		if p.currentTrack != nil {
 			p.state = StateLoading
 			return p, p.extractStreamURL(p.currentTrack.ID)

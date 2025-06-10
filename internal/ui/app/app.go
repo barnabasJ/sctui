@@ -54,6 +54,7 @@ type App struct {
 	streamExtractor  audio.StreamExtractor
 }
 
+
 // NewApp creates a new application instance
 func NewApp() *App {
 	// Initialize SoundCloud client
@@ -62,8 +63,8 @@ func NewApp() *App {
 	// Initialize audio player
 	audioPlayer := audio.NewBeepPlayer()
 	
-	// Initialize stream extractor
-	streamExtractor := audio.NewSoundCloudStreamExtractor("")
+	// Initialize real stream extractor with the SoundCloud client
+	streamExtractor := audio.NewRealSoundCloudStreamExtractor(client)
 	
 	// Initialize components
 	searchComponent := search.NewSearchComponent(client)
@@ -109,6 +110,39 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyShiftTab:
 			a.previousView()
 			return a, nil
+			
+		case tea.KeySpace:
+			// Always pass space key to player component for play/pause
+			updatedPlayer, playerCmd := a.playerComponent.Update(msg)
+			a.playerComponent = updatedPlayer.(*player.PlayerComponent)
+			if playerCmd != nil {
+				cmds = append(cmds, playerCmd)
+			}
+			return a, tea.Batch(cmds...)
+			
+		case tea.KeyLeft, tea.KeyRight:
+			// Always pass seek keys to player component
+			updatedPlayer, playerCmd := a.playerComponent.Update(msg)
+			a.playerComponent = updatedPlayer.(*player.PlayerComponent)
+			if playerCmd != nil {
+				cmds = append(cmds, playerCmd)
+			}
+			return a, tea.Batch(cmds...)
+			
+		case tea.KeyRunes:
+			// Handle volume controls globally
+			if len(msg.Runes) > 0 {
+				switch string(msg.Runes) {
+				case "+", "=", "-":
+					// Always pass volume keys to player component
+					updatedPlayer, playerCmd := a.playerComponent.Update(msg)
+					a.playerComponent = updatedPlayer.(*player.PlayerComponent)
+					if playerCmd != nil {
+						cmds = append(cmds, playerCmd)
+					}
+					return a, tea.Batch(cmds...)
+				}
+			}
 		}
 		
 		// Pass key messages to current view
@@ -233,12 +267,18 @@ func (a *App) renderHeader() string {
 func (a *App) renderFooter() string {
 	helpText := "Tab: Next View • Shift+Tab: Previous View • Ctrl+C: Quit"
 	
+	// Add global audio controls (work from any view)
+	if a.playerComponent.GetCurrentTrack() != nil {
+		helpText += " • Space: Play/Pause • ←→: Seek • +/-: Volume"
+	}
+	
 	// Add view-specific help
 	switch a.currentView {
 	case ViewSearch:
 		helpText += " • Enter: Search • ↑↓: Navigate • Enter: Select"
 	case ViewPlayer:
-		helpText += " • Space: Play/Pause • ←→: Seek • +/-: Volume"
+		// Player-specific controls already shown above
+		helpText += ""
 	}
 	
 	return styles.FooterStyle.Render(helpText)
