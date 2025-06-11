@@ -60,8 +60,8 @@ func NewApp() *App {
 	// Initialize SoundCloud client
 	client, _ := soundcloud.NewClient()
 	
-	// Initialize audio player
-	audioPlayer := audio.NewBeepPlayer()
+	// Initialize audio player with buffered streaming for better responsiveness
+	audioPlayer := audio.NewBufferedBeepPlayer()
 	
 	// Initialize real stream extractor with the SoundCloud client
 	streamExtractor := audio.NewRealSoundCloudStreamExtractor(client)

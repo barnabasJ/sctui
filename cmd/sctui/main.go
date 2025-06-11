@@ -193,8 +193,8 @@ func playTrackFromURL(client *soundcloud.Client, url string) error {
 	fmt.Printf("Now playing: %s by %s\n", track.Title, track.User.FullName())
 	fmt.Printf("Duration: %s\n\n", formatDuration(track.Duration))
 	
-	// Create audio components
-	audioPlayer := audio.NewBeepPlayer()
+	// Create audio components with enhanced buffered streaming
+	audioPlayer := audio.NewBufferedBeepPlayer()
 	defer audioPlayer.Close()
 	
 	streamExtractor := audio.NewRealSoundCloudStreamExtractor(client)
@@ -298,8 +298,8 @@ func testAudioPlayback(client *soundcloud.Client, url string) error {
 	fmt.Printf("Track: %s by %s\n", track.Title, track.User.FullName())
 	fmt.Printf("Duration: %s\n\n", formatDuration(track.Duration))
 	
-	// Create audio components
-	audioPlayer := audio.NewBeepPlayer()
+	// Create audio components with enhanced buffered streaming
+	audioPlayer := audio.NewBufferedBeepPlayer()
 	defer audioPlayer.Close()
 	
 	streamExtractor := audio.NewRealSoundCloudStreamExtractor(client)
