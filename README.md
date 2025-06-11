@@ -1,6 +1,9 @@
 # SoundCloud TUI
 
-A Terminal User Interface for SoundCloud written in Go.
+A Terminal User Interface for SoundCloud written in Go, featuring real audio playback and interactive controls.
+
+![SoundCloud TUI Demo](docs/demo.gif)
+*Search, play, and control SoundCloud tracks directly from your terminal*
 
 ## ⚠️ Important Disclaimer
 
@@ -16,22 +19,32 @@ This application uses SoundCloud's undocumented internal API through a reverse-e
 
 ## Features
 
-✅ **Currently Working:**
-- Search tracks by keyword
-- Display track metadata (title, artist, duration)
-- Retrieve track information from URLs
-- CLI interface with help system
+✅ **Fully Implemented:**
+- **Interactive TUI** with Bubble Tea framework
+- **Real audio playback** using Beep library
+- **Search and browse** SoundCloud tracks
+- **Player controls** (play/pause, seek, volume)
+- **Progress tracking** with smooth progress bars
+- **Global hotkeys** (Space, ←→, +/-) work from any view
+- **Track completion** handling with replay functionality
+- **CLI mode** for search and track info
+
+🎵 **TUI Navigation:**
+- **Tab/Shift+Tab**: Switch between Search/Player/Queue views
+- **Search View**: Enter to search, ↑↓ to navigate, Enter to select
+- **Player View**: Space (play/pause), ←→ (seek 10s), +/- (volume)
+- **Global Controls**: Audio controls work from any view
 
 🚧 **Coming Soon:**
-- Audio playback and streaming
-- Interactive TUI with Bubble Tea
-- Playlist management
-- Volume controls
+- Playlist management and queue functionality
+- Favorites and user library integration
+- Enhanced metadata display
 
 ## Installation
 
 ### Prerequisites
 - Go 1.21 or later
+- Audio system (ALSA/PulseAudio on Linux, Core Audio on macOS, DirectSound on Windows)
 
 ### Build from Source
 
@@ -49,20 +62,35 @@ make build
 
 ## Usage
 
-### Search for Tracks
+### Interactive TUI Mode (Default)
 ```bash
+./bin/sctui
+```
+
+Launches the full interactive Terminal UI with audio playback capabilities.
+
+### CLI Mode Examples
+```bash
+# Search for tracks
 ./bin/sctui -search "lofi hip hop"
-```
 
-### Get Track Information
-```bash
+# Get track information
 ./bin/sctui -track "https://soundcloud.com/artist/track"
-```
 
-### Show Help
-```bash
+# Show help
 ./bin/sctui -help
 ```
+
+### TUI Controls
+- **Tab/Shift+Tab**: Navigate between views
+- **Search View**: 
+  - Type to search, Enter to execute
+  - ↑↓ to navigate results, Enter to play
+- **Global Audio Controls** (work from any view):
+  - **Space**: Play/Pause
+  - **←→**: Seek backward/forward (10 seconds)
+  - **+/-**: Volume up/down
+- **Ctrl+C**: Quit application
 
 ## Development
 
@@ -82,14 +110,23 @@ make help        # Show available commands
 
 ```
 cmd/
-├── sctui/          # Main CLI application
+├── sctui/          # Main TUI application entry point
 └── test/           # Test utilities
 internal/
-├── soundcloud/     # SoundCloud API client
-├── api/           # Legacy OAuth code (unused)
-└── config/        # Configuration management
-notes/             # Planning and documentation
-bin/               # Build artifacts (gitignored)
+├── audio/          # Audio playback and streaming (Beep integration)
+├── soundcloud/     # SoundCloud API client wrapper
+├── ui/             # TUI components (Bubble Tea)
+│   ├── app/        # Main application model
+│   ├── components/ # Player, Search, UI components
+│   └── styles/     # Centralized styling
+├── api/            # Legacy OAuth code (unused)
+└── config/         # Configuration management
+tests/
+├── unit/           # Component unit tests
+├── integration/    # API integration tests
+└── e2e/            # End-to-end tests
+notes/              # Planning and documentation
+bin/                # Build artifacts (gitignored)
 ```
 
 ### Testing
@@ -104,33 +141,95 @@ make test
 go test -cover ./...
 ```
 
+## Technical Architecture
+
+### Audio Implementation
+- **Beep Library**: High-performance audio playback with MP3/WAV support
+- **HTTP Streaming**: Direct streaming from SoundCloud CDN (no downloads)
+- **Real-time Position Tracking**: 250ms update intervals for smooth progress
+- **Thread-safe Player**: Concurrent-safe with proper mutex locking
+
+### TUI Framework
+- **Bubble Tea**: Modern terminal UI framework with message passing
+- **Component Architecture**: Modular player, search, and navigation components
+- **Global State Management**: Centralized app state with component communication
+- **Responsive Design**: Adapts to terminal size changes
+
+### SoundCloud Integration  
+- **Reverse-engineered API**: Uses `github.com/zackradisic/soundcloud-api`
+- **No Official Credentials**: Works without API keys or authentication
+- **Real Stream URLs**: Extracts actual CDN URLs for audio playback
+- **CloudFront Authentication**: Handles signed URL parameters
+
 ## Roadmap
 
-See [implementation plan](notes/soundcloud-go-implementation.md) for detailed roadmap.
+**Phase 1: Core TUI** ✅ 
+- Interactive TUI with Bubble Tea
+- Search and navigation
+- Player controls and state management
 
-**Phase 1: MVP** ✅ 
-- Basic SoundCloud integration
-- CLI search and track info
+**Phase 2: Real Audio** ✅
+- Beep library integration
+- HTTP audio streaming  
+- Position/duration tracking
+- Volume and seeking controls
 
-**Phase 2: Audio Streaming (TDD)**
-- Audio playback from streaming URLs
-- Basic TUI interface
-- Player controls
-
-**Phase 3: Enhanced Experience**
-- Playlist management
-- Advanced TUI features
-- Keyboard shortcuts
+**Phase 3: Enhanced Experience** 🚧
+- Playlist management and queue
+- Favorites and user library
+- Advanced metadata display
+- Improved error handling
 
 ## Contributing
 
-This is an educational project. Contributions welcome for:
-- Bug fixes and improvements
-- Test coverage
-- Documentation
-- Performance optimizations
+This is an educational project demonstrating TUI development and audio programming in Go. Contributions welcome for:
 
-Please ensure all changes include appropriate tests.
+- **Bug fixes and improvements**: Help make the player more robust
+- **Test coverage**: Expand unit and integration test coverage  
+- **Documentation**: Improve guides and API documentation
+- **Performance optimizations**: Audio streaming and UI responsiveness improvements
+- **New features**: Queue management, playlists, enhanced metadata
+
+### Development Guidelines
+- Follow TDD principles - write tests first
+- Use the Makefile for all build operations
+- Update CLAUDE.md for any new commands or workflows
+- Ensure changes work across platforms (Linux/macOS/Windows)
+- Include appropriate error handling and user feedback
+
+### Getting Started
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/my-feature`
+3. Write tests for your changes
+4. Implement your feature
+5. Ensure all tests pass: `make test`
+6. Submit a pull request
+
+Please ensure all changes include appropriate tests and documentation.
+
+## Troubleshooting
+
+### Audio Issues
+- **Linux**: Ensure ALSA or PulseAudio is installed and running
+  ```bash
+  # Check audio system
+  aplay -l  # List audio devices
+  pulseaudio --check  # Check PulseAudio status
+  ```
+- **macOS**: Should work out of the box with Core Audio
+- **Windows**: Requires DirectSound (usually pre-installed)
+
+### Build Issues
+- **Missing dependencies**: Run `make deps` to install Go modules
+- **Permission errors**: Ensure Go workspace has write permissions
+- **Network issues**: Some dependencies require internet access
+
+### Runtime Issues
+- **TUI not displaying**: Ensure terminal supports 256 colors
+- **Track not playing**: Check internet connection and SoundCloud availability
+- **Controls not responding**: Try different terminal emulator or update to latest version
+
+For more help, check the [troubleshooting guide](notes/troubleshooting.md) or open an issue.
 
 ## Legal
 
