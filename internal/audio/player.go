@@ -1,9 +1,9 @@
 package audio
 
 import (
-	"bufio"
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -108,6 +108,8 @@ func NewBeepPlayer() *BeepPlayer {
 
 // Play starts or resumes playback from a streaming URL
 func (p *BeepPlayer) Play(ctx context.Context, streamURL string) error {
+	log.Printf("[DEBUG] BeepPlayer.Play: *** PLAY CALLED *** for URL: %s", streamURL)
+	log.Printf("[DEBUG] BeepPlayer.Play: Current state: %s", p.state.String())
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	
@@ -124,21 +126,27 @@ func (p *BeepPlayer) Play(ctx context.Context, streamURL string) error {
 	}
 
 	// Stop any existing playback
+	log.Printf("[DEBUG] BeepPlayer.Play: Stopping existing playback")
 	if err := p.stopLocked(); err != nil {
 		return fmt.Errorf("failed to stop existing playback: %w", err)
 	}
 
 	// Download and decode audio stream
+	log.Printf("[DEBUG] BeepPlayer.Play: Loading audio stream")
 	streamer, format, err := p.loadAudioStream(ctx, streamURL)
 	if err != nil {
+		log.Printf("[DEBUG] BeepPlayer.Play: Failed to load audio stream: %v", err)
 		return fmt.Errorf("failed to load audio stream: %w", err)
 	}
+	log.Printf("[DEBUG] BeepPlayer.Play: Audio stream loaded successfully, format: %+v", format)
 
 	// Initialize speaker if needed
 	p.speakerInit.Do(func() {
+		log.Printf("[DEBUG] BeepPlayer.Play: Initializing speaker with sample rate: %d", format.SampleRate)
 		p.speakerInitErr = speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
 	})
 	if p.speakerInitErr != nil {
+		log.Printf("[DEBUG] BeepPlayer.Play: Speaker initialization failed: %v", p.speakerInitErr)
 		streamer.Close()
 		return fmt.Errorf("failed to initialize speaker: %w", p.speakerInitErr)
 	}
@@ -164,7 +172,9 @@ func (p *BeepPlayer) Play(ctx context.Context, streamURL string) error {
 
 	// Start playback
 	done := make(chan bool)
+	log.Printf("[DEBUG] BeepPlayer.Play: Starting speaker playback")
 	speaker.Play(beep.Seq(p.ctrl, beep.Callback(func() {
+		log.Printf("[DEBUG] BeepPlayer.Play: *** CALLBACK TRIGGERED *** - track finished or stopped")
 		p.mu.Lock()
 		p.state = StateStopped
 		p.mu.Unlock()
@@ -172,6 +182,7 @@ func (p *BeepPlayer) Play(ctx context.Context, streamURL string) error {
 	})))
 
 	p.state = StatePlaying
+	log.Printf("[DEBUG] BeepPlayer.Play: State set to StatePlaying")
 	
 	// Start position tracking
 	go p.trackPosition(done)
@@ -357,57 +368,34 @@ func (p *BeepPlayer) stopLocked() error {
 }
 
 // loadAudioStream downloads and decodes an audio stream from URL
-// httpStreamer wraps an HTTP response body to implement proper streaming
-type httpStreamer struct {
-	resp   *http.Response
-	reader *bufio.Reader
-}
-
-func newHTTPStreamer(resp *http.Response) *httpStreamer {
-	return &httpStreamer{
-		resp:   resp,
-		reader: bufio.NewReaderSize(resp.Body, 64*1024), // 64KB buffer
-	}
-}
-
-func (h *httpStreamer) Read(p []byte) (n int, err error) {
-	return h.reader.Read(p)
-}
-
-func (h *httpStreamer) Close() error {
-	if h.resp != nil && h.resp.Body != nil {
-		return h.resp.Body.Close()
-	}
-	return nil
-}
-
 func (p *BeepPlayer) loadAudioStream(ctx context.Context, streamURL string) (beep.StreamSeekCloser, beep.Format, error) {
-	// Create HTTP request with longer timeout for large files
+	log.Printf("[DEBUG] BeepPlayer.loadAudioStream: Creating HTTP request for: %s", streamURL)
+	deadline, hasDeadline := ctx.Deadline()
+	log.Printf("[DEBUG] BeepPlayer.loadAudioStream: Context deadline: %v (has deadline: %v)", deadline, hasDeadline)
+	
+	// Create HTTP request  
 	req, err := http.NewRequestWithContext(ctx, "GET", streamURL, nil)
 	if err != nil {
 		return nil, beep.Format{}, fmt.Errorf("failed to create request: %w", err)
 	}
 	
-	// Add headers to support streaming
-	req.Header.Set("Range", "bytes=0-") // Request range support
-	req.Header.Set("Accept", "audio/mpeg,audio/wav,audio/*")
-	
-	// Start HTTP request
+	// Download stream
+	log.Printf("[DEBUG] BeepPlayer.loadAudioStream: Downloading stream")
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
-		return nil, beep.Format{}, fmt.Errorf("failed to start stream: %w", err)
+		return nil, beep.Format{}, fmt.Errorf("failed to download stream: %w", err)
 	}
 	
-	// Accept both 200 (full content) and 206 (partial content)
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
 		return nil, beep.Format{}, fmt.Errorf("HTTP error: %d %s", resp.StatusCode, resp.Status)
 	}
 	
-	// Create buffered reader for streaming
-	httpStream := newHTTPStreamer(resp)
+	expectedLength := resp.Header.Get("Content-Length")
+	log.Printf("[DEBUG] BeepPlayer.loadAudioStream: HTTP response received, status: %d, content-type: %s, content-length: %s", 
+		resp.StatusCode, resp.Header.Get("Content-Type"), expectedLength)
 	
-	// Detect format and decode with streaming
+	// Detect format and decode
 	contentType := resp.Header.Get("Content-Type")
 	streamURL = strings.ToLower(streamURL)
 	
@@ -415,19 +403,23 @@ func (p *BeepPlayer) loadAudioStream(ctx context.Context, streamURL string) (bee
 	var format beep.Format
 	
 	if strings.Contains(contentType, "audio/mpeg") || strings.Contains(streamURL, ".mp3") {
-		streamer, format, err = mp3.Decode(httpStream)
+		log.Printf("[DEBUG] BeepPlayer.loadAudioStream: Decoding as MP3")
+		streamer, format, err = mp3.Decode(resp.Body)
 	} else if strings.Contains(contentType, "audio/wav") || strings.Contains(streamURL, ".wav") {
-		streamer, format, err = wav.Decode(httpStream)
+		log.Printf("[DEBUG] BeepPlayer.loadAudioStream: Decoding as WAV")
+		streamer, format, err = wav.Decode(resp.Body)
 	} else {
-		// Default to MP3 for SoundCloud streams
-		streamer, format, err = mp3.Decode(httpStream)
+		log.Printf("[DEBUG] BeepPlayer.loadAudioStream: Default decoding as MP3")
+		streamer, format, err = mp3.Decode(resp.Body)
 	}
 	
 	if err != nil {
-		httpStream.Close()
-		return nil, beep.Format{}, fmt.Errorf("failed to decode audio stream: %w", err)
+		log.Printf("[DEBUG] BeepPlayer.loadAudioStream: Audio decoding failed: %v", err)
+		resp.Body.Close()
+		return nil, beep.Format{}, fmt.Errorf("failed to decode audio: %w", err)
 	}
 	
+	log.Printf("[DEBUG] BeepPlayer.loadAudioStream: Audio decoded successfully")
 	return streamer, format, nil
 }
 
@@ -447,16 +439,26 @@ func (p *BeepPlayer) volumeToBeepVolume(linearVolume float64) float64 {
 
 // trackPosition runs in a goroutine to track playback position
 func (p *BeepPlayer) trackPosition(done <-chan bool) {
+	log.Printf("[DEBUG] BeepPlayer.trackPosition: Starting position tracking")
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
+	
+	startTime := time.Now()
 	
 	for {
 		select {
 		case <-done:
+			elapsed := time.Since(startTime)
+			log.Printf("[DEBUG] BeepPlayer.trackPosition: Position tracking stopped after %v", elapsed)
 			return
 		case <-ticker.C:
 			// Position tracking is handled by GetPosition() which queries the streamer directly
 			// This goroutine mainly exists for any future position-based logic
+			if time.Since(startTime) > 5*time.Second {
+				// Log every 5 seconds to track progress
+				log.Printf("[DEBUG] BeepPlayer.trackPosition: Still tracking after %v", time.Since(startTime))
+				startTime = time.Now() // Reset to avoid spam
+			}
 		}
 	}
 }
