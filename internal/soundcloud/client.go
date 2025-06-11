@@ -118,7 +118,10 @@ func (c *Client) GetTrackInfo(url string) (*Track, error) {
 // Search searches for tracks on SoundCloud
 func (c *Client) Search(query string) ([]Track, error) {
 	paginatedQuery, err := c.api.Search(soundcloudapi.SearchOptions{
-		Query: query,
+		Query:  query,
+		Kind:   soundcloudapi.KindTrack, // Search only for tracks
+		Limit:  50,                      // Increase limit for more results
+		Offset: 0,                       // Start from beginning
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to search: %w", err)
