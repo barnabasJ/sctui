@@ -219,12 +219,17 @@ func (p *PlayerComponent) togglePlayPause() (tea.Model, tea.Cmd) {
 			}
 		}
 	case audio.StatePaused:
-		// For a paused state, we need to restart the stream since Beep doesn't support resume
-		if p.currentTrack != nil {
-			p.state = StateLoading
-			return p, p.extractStreamURL(p.currentTrack.ID)
+		// Resume playback without restarting the stream
+		return p, func() tea.Msg {
+			err := p.audioPlayer.Resume()
+			if err != nil {
+				return fmt.Errorf("failed to resume: %w", err)
+			}
+			return ProgressUpdateMsg{
+				Position: p.audioPlayer.GetPosition(),
+				Duration: p.audioPlayer.GetDuration(),
+			}
 		}
-		return p, nil
 	case audio.StateStopped:
 		// Handle completed/stopped state - replay the track
 		if p.currentTrack != nil {

@@ -139,8 +139,20 @@ case audio.StateStopped:
 - Users can replay completed tracks with Space key
 - Completed tracks show proper "✅ Track Completed" status
 
+**Additional Issue Found:**
+🔍 **Pause/Resume causing state confusion** - User reported the issue still occurs when pausing/playing in player tab.
+
+**Root Cause**: The original pause/resume logic was restarting the entire stream instead of just unpausing the Beep control. This caused a brief transition through `StateStopped` during stream restart, triggering the state confusion.
+
+**Additional Fix Applied:**
+- Added `Resume()` method to Player interface and BeepPlayer
+- Modified pause/resume to use proper Beep pause/unpause instead of stream restart
+- Updated MockAudioPlayer to include Resume method
+- No longer restarts stream when resuming from pause
+
 **What to Test:**
 - Play a track to completion and verify it shows completed state (not "No track loaded")
 - Press Space on completed track to verify replay functionality
-- Verify normal pause/resume still works during playback
+- ✅ **Pause and resume during playback** - should maintain position and not restart stream
 - Test that actual errors still show error state appropriately
+- Verify no "No track loaded" appears during pause/resume operations

@@ -45,6 +45,9 @@ type Player interface {
 	// Pause pauses the current playback
 	Pause() error
 
+	// Resume resumes paused playback
+	Resume() error
+
 	// Stop stops playback and resets position
 	Stop() error
 
@@ -191,6 +194,25 @@ func (p *BeepPlayer) Pause() error {
 	}
 
 	p.state = StatePaused
+	return nil
+}
+
+// Resume resumes paused playback
+func (p *BeepPlayer) Resume() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	
+	if p.state != StatePaused {
+		return fmt.Errorf("cannot resume: player is %s", p.state)
+	}
+
+	if p.ctrl != nil {
+		speaker.Lock()
+		p.ctrl.Paused = false
+		speaker.Unlock()
+	}
+
+	p.state = StatePlaying
 	return nil
 }
 

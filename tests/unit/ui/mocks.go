@@ -28,6 +28,13 @@ func (m *MockAudioPlayer) Pause() error {
 	return nil
 }
 
+func (m *MockAudioPlayer) Resume() error {
+	if m.state == audio.StatePaused {
+		m.state = audio.StatePlaying
+	}
+	return nil
+}
+
 func (m *MockAudioPlayer) Stop() error {
 	m.state = audio.StateStopped
 	m.position = 0
