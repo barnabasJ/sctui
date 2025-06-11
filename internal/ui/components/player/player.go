@@ -62,6 +62,17 @@ type ProgressUpdateMsg struct {
 	Duration time.Duration
 }
 
+// PlaybackStartedMsg indicates that playback has successfully started
+type PlaybackStartedMsg struct {
+	Track *soundcloud.Track
+}
+
+// PlaybackFailedMsg indicates that playback failed to start
+type PlaybackFailedMsg struct {
+	Track *soundcloud.Track
+	Error error
+}
+
 // PlayerComponent represents the player view component
 type PlayerComponent struct {
 	// Size
@@ -188,7 +199,13 @@ func (p *PlayerComponent) handleStreamInfo(msg StreamInfoMsg) (tea.Model, tea.Cm
 	if msg.Error != nil {
 		p.state = StateError
 		p.error = msg.Error
-		return p, nil
+		// Send playback failed message
+		return p, func() tea.Msg {
+			return PlaybackFailedMsg{
+				Track: p.currentTrack,
+				Error: msg.Error,
+			}
+		}
 	}
 	
 	// Store expected duration from SoundCloud metadata
@@ -197,7 +214,15 @@ func (p *PlayerComponent) handleStreamInfo(msg StreamInfoMsg) (tea.Model, tea.Cm
 	}
 	
 	p.state = StatePlaying
-	return p, p.playStream(msg.StreamInfo.URL)
+	return p, tea.Batch(
+		p.playStream(msg.StreamInfo.URL),
+		// Send playback started message
+		func() tea.Msg {
+			return PlaybackStartedMsg{
+				Track: p.currentTrack,
+			}
+		},
+	)
 }
 
 // togglePlayPause toggles between play and pause
@@ -365,7 +390,7 @@ func (p *PlayerComponent) extractStreamURL(trackID int64) tea.Cmd {
 // playStream starts playing a stream
 func (p *PlayerComponent) playStream(streamURL string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		
 		err := p.audioPlayer.Play(ctx, streamURL)
@@ -430,6 +455,15 @@ func (p *PlayerComponent) syncStateWithAudioPlayer() {
 func (p *PlayerComponent) handleError(err error) (tea.Model, tea.Cmd) {
 	p.state = StateError
 	p.error = err
+	// Send playback failed message if we have a current track
+	if p.currentTrack != nil {
+		return p, func() tea.Msg {
+			return PlaybackFailedMsg{
+				Track: p.currentTrack,
+				Error: err,
+			}
+		}
+	}
 	return p, nil
 }
 
