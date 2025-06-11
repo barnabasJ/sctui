@@ -1,6 +1,7 @@
 package audio
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"net/http"
@@ -356,25 +357,57 @@ func (p *BeepPlayer) stopLocked() error {
 }
 
 // loadAudioStream downloads and decodes an audio stream from URL
+// httpStreamer wraps an HTTP response body to implement proper streaming
+type httpStreamer struct {
+	resp   *http.Response
+	reader *bufio.Reader
+}
+
+func newHTTPStreamer(resp *http.Response) *httpStreamer {
+	return &httpStreamer{
+		resp:   resp,
+		reader: bufio.NewReaderSize(resp.Body, 64*1024), // 64KB buffer
+	}
+}
+
+func (h *httpStreamer) Read(p []byte) (n int, err error) {
+	return h.reader.Read(p)
+}
+
+func (h *httpStreamer) Close() error {
+	if h.resp != nil && h.resp.Body != nil {
+		return h.resp.Body.Close()
+	}
+	return nil
+}
+
 func (p *BeepPlayer) loadAudioStream(ctx context.Context, streamURL string) (beep.StreamSeekCloser, beep.Format, error) {
-	// Create HTTP request
+	// Create HTTP request with longer timeout for large files
 	req, err := http.NewRequestWithContext(ctx, "GET", streamURL, nil)
 	if err != nil {
 		return nil, beep.Format{}, fmt.Errorf("failed to create request: %w", err)
 	}
 	
-	// Download stream
+	// Add headers to support streaming
+	req.Header.Set("Range", "bytes=0-") // Request range support
+	req.Header.Set("Accept", "audio/mpeg,audio/wav,audio/*")
+	
+	// Start HTTP request
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
-		return nil, beep.Format{}, fmt.Errorf("failed to download stream: %w", err)
+		return nil, beep.Format{}, fmt.Errorf("failed to start stream: %w", err)
 	}
 	
-	if resp.StatusCode != http.StatusOK {
+	// Accept both 200 (full content) and 206 (partial content)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		resp.Body.Close()
 		return nil, beep.Format{}, fmt.Errorf("HTTP error: %d %s", resp.StatusCode, resp.Status)
 	}
 	
-	// Detect format and decode
+	// Create buffered reader for streaming
+	httpStream := newHTTPStreamer(resp)
+	
+	// Detect format and decode with streaming
 	contentType := resp.Header.Get("Content-Type")
 	streamURL = strings.ToLower(streamURL)
 	
@@ -382,17 +415,17 @@ func (p *BeepPlayer) loadAudioStream(ctx context.Context, streamURL string) (bee
 	var format beep.Format
 	
 	if strings.Contains(contentType, "audio/mpeg") || strings.Contains(streamURL, ".mp3") {
-		streamer, format, err = mp3.Decode(resp.Body)
+		streamer, format, err = mp3.Decode(httpStream)
 	} else if strings.Contains(contentType, "audio/wav") || strings.Contains(streamURL, ".wav") {
-		streamer, format, err = wav.Decode(resp.Body)
+		streamer, format, err = wav.Decode(httpStream)
 	} else {
 		// Default to MP3 for SoundCloud streams
-		streamer, format, err = mp3.Decode(resp.Body)
+		streamer, format, err = mp3.Decode(httpStream)
 	}
 	
 	if err != nil {
-		resp.Body.Close()
-		return nil, beep.Format{}, fmt.Errorf("failed to decode audio: %w", err)
+		httpStream.Close()
+		return nil, beep.Format{}, fmt.Errorf("failed to decode audio stream: %w", err)
 	}
 	
 	return streamer, format, nil
