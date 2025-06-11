@@ -19,6 +19,7 @@ const (
 	StateSearching
 	StateResults
 	StateError
+	StateTrackSelected // New state for when a track is selected
 )
 
 // String returns the string representation of State
@@ -32,6 +33,8 @@ func (s State) String() string {
 		return "results"
 	case StateError:
 		return "error"
+	case StateTrackSelected:
+		return "track_selected"
 	default:
 		return "unknown"
 	}
@@ -163,6 +166,7 @@ func (s *SearchComponent) handleResultsState(msg tea.KeyMsg) (tea.Model, tea.Cmd
 	case tea.KeyEnter:
 		if s.selectedIndex < len(s.results) {
 			s.selectedTrack = &s.results[s.selectedIndex]
+			s.state = StateTrackSelected // Show loading feedback
 			return s, nil
 		}
 		return s, nil
@@ -226,6 +230,8 @@ func (s *SearchComponent) View() string {
 		return s.renderResultsView()
 	case StateError:
 		return s.renderErrorView()
+	case StateTrackSelected:
+		return s.renderTrackSelectedView()
 	default:
 		return "Unknown state"
 	}
@@ -355,6 +361,27 @@ func (s *SearchComponent) renderErrorView() string {
 	)
 }
 
+// renderTrackSelectedView renders the track selected/loading view
+func (s *SearchComponent) renderTrackSelectedView() string {
+	if s.selectedTrack == nil {
+		return s.renderResultsView() // Fallback to results if no track selected
+	}
+	
+	loadingBox := styles.SearchBoxStyle.Render(
+		lipgloss.JoinVertical(
+			lipgloss.Left,
+			styles.TrackTitleStyle.Render("Loading Track..."),
+			"",
+			styles.LoadingStatusStyle.Render("🎵 "+s.selectedTrack.Title),
+			styles.TrackArtistStyle.Render("by "+s.selectedTrack.Artist()),
+			"",
+			styles.LoadingStatusStyle.Render("⏳ Fetching stream URL..."),
+		),
+	)
+	
+	return loadingBox
+}
+
 // Getter methods for testing and integration
 func (s *SearchComponent) GetQuery() string {
 	return s.query
@@ -391,4 +418,12 @@ func (s *SearchComponent) ClearSelection() {
 func (s *SearchComponent) SetSize(width, height int) {
 	s.width = width
 	s.height = height
+}
+
+// ResetToResults resets the component back to showing results after track selection
+func (s *SearchComponent) ResetToResults() {
+	if s.state == StateTrackSelected {
+		s.state = StateResults
+		s.selectedTrack = nil
+	}
 }
