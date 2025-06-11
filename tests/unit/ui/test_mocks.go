@@ -1,4 +1,4 @@
-package ui
+package ui_test
 
 import (
 	"context"
@@ -90,7 +90,12 @@ func (m *MockStreamExtractor) ExtractStreamURL(ctx context.Context, trackID int6
 	if m.ExtractFunc != nil {
 		return m.ExtractFunc(ctx, trackID)
 	}
-	return nil, assert.AnError
+	return &audio.StreamInfo{
+		URL:      "https://example.com/stream.mp3",
+		Format:   "mp3",
+		Quality:  "sq",
+		Duration: 240000,
+	}, nil
 }
 
 func (m *MockStreamExtractor) GetAvailableQualities(ctx context.Context, trackID int64) ([]string, error) {
@@ -114,5 +119,9 @@ func (m *MockSoundCloudClient) Search(query string) ([]soundcloud.Track, error) 
 }
 
 func (m *MockSoundCloudClient) GetTrackInfo(url string) (*soundcloud.Track, error) {
-	return nil, nil
+	return &soundcloud.Track{
+		ID:    123,
+		Title: "Test Track",
+		User:  soundcloud.User{Username: "Test Artist"},
+	}, nil
 }

@@ -171,7 +171,7 @@ func TestAudioStateManagement_ProgressUpdatesDuringPlayback(t *testing.T) {
 	progressPoints := []int64{0, 30000, 60000, 90000, 120000, 150000, 180000}
 
 	for i, pos := range progressPoints {
-		mockPlayer.position = pos
+		mockPlayer.position = time.Duration(pos) * time.Millisecond
 		
 		progressMsg := player.ProgressUpdateMsg{
 			Position: time.Duration(pos) * time.Millisecond,
@@ -373,7 +373,7 @@ func TestAudioStateManagement_SeekOperations(t *testing.T) {
 	// Test various seek operations
 	seekTests := []struct {
 		name        string
-		key         tea.Key
+		key         tea.KeyType
 		expectCmd   bool
 		description string
 	}{
