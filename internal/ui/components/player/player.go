@@ -21,6 +21,7 @@ const (
 	StateLoading
 	StatePlaying
 	StatePaused
+	StateCompleted
 	StateError
 )
 
@@ -35,6 +36,8 @@ func (s State) String() string {
 		return "playing"
 	case StatePaused:
 		return "paused"
+	case StateCompleted:
+		return "completed"
 	case StateError:
 		return "error"
 	default:
@@ -222,6 +225,13 @@ func (p *PlayerComponent) togglePlayPause() (tea.Model, tea.Cmd) {
 			return p, p.extractStreamURL(p.currentTrack.ID)
 		}
 		return p, nil
+	case audio.StateStopped:
+		// Handle completed/stopped state - replay the track
+		if p.currentTrack != nil {
+			p.state = StateLoading
+			return p, p.extractStreamURL(p.currentTrack.ID)
+		}
+		return p, nil
 	default:
 		return p, nil
 	}
@@ -396,7 +406,13 @@ func (p *PlayerComponent) syncStateWithAudioPlayer() {
 		}
 	case audio.StateStopped:
 		if p.state == StatePlaying || p.state == StatePaused {
-			p.state = StateIdle
+			// If we have a current track, it completed successfully
+			if p.currentTrack != nil {
+				p.state = StateCompleted
+			} else {
+				// No track means we should be idle
+				p.state = StateIdle
+			}
 		}
 	}
 
@@ -420,6 +436,8 @@ func (p *PlayerComponent) View() string {
 		return p.renderLoadingView()
 	case StatePlaying, StatePaused:
 		return p.renderPlayingView()
+	case StateCompleted:
+		return p.renderCompletedView()
 	case StateError:
 		return p.renderErrorView()
 	default:
@@ -519,6 +537,70 @@ func (p *PlayerComponent) renderPlayingView() string {
 	
 	// Controls help
 	controls := styles.HelpStyle.Render("Space: Play/Pause • ←→: Seek • +/-: Volume")
+	
+	// Combine everything
+	content := lipgloss.JoinVertical(
+		lipgloss.Left,
+		metadata,
+		"",
+		status,
+		"",
+		progressBar,
+		styles.StatusStyle.Render(timeInfo),
+		"",
+		styles.StatusStyle.Render(volumeInfo),
+		"",
+		controls,
+	)
+	
+	return styles.PlayerStyle.Width(p.width-4).Render(content)
+}
+
+// renderCompletedView renders the completed view
+func (p *PlayerComponent) renderCompletedView() string {
+	if p.currentTrack == nil {
+		return p.renderIdleView()
+	}
+	
+	// Track info with enhanced metadata display
+	metadata := styles.RenderMetadataPanel(
+		p.currentTrack.Title,
+		p.currentTrack.Artist(),
+		p.width-8, // Account for player panel padding
+	)
+	
+	// Status
+	status := styles.StatusStyle.Render("✅ Track Completed")
+	
+	// Progress bar (show as full)
+	var progressBar string
+	var timeInfo string
+	
+	if p.duration > 0 {
+		progressBar = styles.RenderProgressBar(p.width-12, 1.0) // 100% complete
+		
+		durStr := styles.FormatDurationFromTime(p.duration)
+		timeInfo = fmt.Sprintf("%s / %s", durStr, durStr)
+	} else {
+		progressBar = styles.RenderProgressBar(p.width-12, 1.0)
+		timeInfo = "Completed"
+	}
+	
+	// Volume info
+	volumePercent := int(p.volume * 100)
+	var volumeIcon string
+	switch {
+	case p.volume == 0:
+		volumeIcon = "🔇" // Muted
+	case p.volume < 0.5:
+		volumeIcon = "🔉" // Low volume
+	default:
+		volumeIcon = "🔊" // High volume
+	}
+	volumeInfo := fmt.Sprintf("%s %d%%", volumeIcon, volumePercent)
+	
+	// Controls help
+	controls := styles.HelpStyle.Render("Space: Replay • Search for another track")
 	
 	// Combine everything
 	content := lipgloss.JoinVertical(
