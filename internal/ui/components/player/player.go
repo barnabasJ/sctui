@@ -87,6 +87,7 @@ type PlayerComponent struct {
 	expectedDuration time.Duration // Duration from SoundCloud metadata
 	volume          float64
 	error           error
+	prematureStopDetected bool    // Flag to track if we've already detected a premature stop
 	
 	// Dependencies
 	audioPlayer     audio.Player
@@ -184,6 +185,7 @@ func (p *PlayerComponent) handlePlayTrack(msg PlayTrackMsg) (tea.Model, tea.Cmd)
 	p.currentTrack = msg.Track
 	p.state = StateLoading
 	p.error = nil
+	p.prematureStopDetected = false // Reset flag for new track
 	
 	if p.streamExtractor == nil {
 		p.state = StateError
@@ -256,10 +258,47 @@ func (p *PlayerComponent) togglePlayPause() (tea.Model, tea.Cmd) {
 			}
 		}
 	case audio.StateStopped:
-		// Handle completed/stopped state - replay the track
+		// Check if we've actually completed the track or if it's a temporary stop
 		if p.currentTrack != nil {
-			p.state = StateLoading
-			return p, p.extractStreamURL(p.currentTrack.ID)
+			expectedDuration := time.Duration(p.currentTrack.Duration) * time.Millisecond
+			// Only restart from beginning if we're near the end or if duration is unknown
+			if p.position >= expectedDuration-2*time.Second || expectedDuration == 0 {
+				// Track completed - replay from beginning
+				p.state = StateLoading
+				return p, p.extractStreamURL(p.currentTrack.ID)
+			} else {
+				// Premature stop - restart track but seek to current position to maintain continuity
+				fmt.Printf("[DEBUG] togglePlayPause: Restarting track due to premature stop at %v\n", 
+					p.position.Truncate(time.Millisecond))
+				savedPosition := p.position
+				p.state = StateLoading
+				return p, func() tea.Msg {
+					// Extract new stream URL and then seek to saved position
+					streamInfo, err := p.streamExtractor.ExtractStreamURL(context.Background(), p.currentTrack.ID)
+					if err != nil {
+						return fmt.Errorf("failed to restart stream: %w", err)
+					}
+					
+					// Start playback
+					err = p.audioPlayer.Play(context.Background(), streamInfo.URL)
+					if err != nil {
+						return fmt.Errorf("failed to restart playback: %w", err)
+					}
+					
+					// Seek to saved position
+					if savedPosition > 0 {
+						err = p.audioPlayer.Seek(savedPosition)
+						if err != nil {
+							fmt.Printf("[DEBUG] togglePlayPause: Failed to seek to %v: %v\n", savedPosition, err)
+						}
+					}
+					
+					return ProgressUpdateMsg{
+						Position: p.audioPlayer.GetPosition(),
+						Duration: p.audioPlayer.GetDuration(),
+					}
+				}
+			}
 		}
 		return p, nil
 	default:
@@ -390,14 +429,17 @@ func (p *PlayerComponent) extractStreamURL(trackID int64) tea.Cmd {
 // playStream starts playing a stream
 func (p *PlayerComponent) playStream(streamURL string) tea.Cmd {
 	return func() tea.Msg {
+		fmt.Printf("[DEBUG] playStream: Starting playback for URL: %s\n", streamURL[:50]+"...")
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		
 		err := p.audioPlayer.Play(ctx, streamURL)
 		if err != nil {
+			fmt.Printf("[DEBUG] playStream: Play failed with error: %v\n", err)
 			return fmt.Errorf("failed to play stream: %w", err)
 		}
 		
+		fmt.Printf("[DEBUG] playStream: Play succeeded, returning ProgressUpdateMsg\n")
 		return ProgressUpdateMsg{
 			Position: p.audioPlayer.GetPosition(),
 			Duration: p.audioPlayer.GetDuration(),
@@ -430,6 +472,7 @@ func (p *PlayerComponent) syncStateWithAudioPlayer() {
 	case audio.StatePlaying:
 		if p.state != StatePlaying && p.state != StateLoading {
 			p.state = StatePlaying
+			p.prematureStopDetected = false // Reset flag when playback starts
 		}
 	case audio.StatePaused:
 		if p.state == StatePlaying {
@@ -437,9 +480,22 @@ func (p *PlayerComponent) syncStateWithAudioPlayer() {
 		}
 	case audio.StateStopped:
 		if p.state == StatePlaying || p.state == StatePaused {
-			// If we have a current track, it completed successfully
+			// Only mark as completed if we're near the end of the track
+			// Otherwise it might be a temporary stop due to buffering/network issues
 			if p.currentTrack != nil {
-				p.state = StateCompleted
+				// Check if position is near the end (within last 2 seconds)
+				expectedDuration := time.Duration(p.currentTrack.Duration) * time.Millisecond
+				if p.position >= expectedDuration-2*time.Second || expectedDuration == 0 {
+					p.state = StateCompleted
+				} else {
+					// Premature stop detected - only log once
+					if !p.prematureStopDetected {
+						fmt.Printf("[DEBUG] Player: Premature stop detected at %v of %v, press space to continue\n", 
+							p.position.Truncate(time.Millisecond), expectedDuration.Truncate(time.Millisecond))
+						p.prematureStopDetected = true
+					}
+					// Don't change state immediately - wait for user input
+				}
 			} else {
 				// No track means we should be idle
 				p.state = StateIdle
