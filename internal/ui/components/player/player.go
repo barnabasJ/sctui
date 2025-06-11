@@ -130,11 +130,45 @@ func (p *PlayerComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ProgressUpdateMsg:
 		p.position = msg.Position
 		p.duration = msg.Duration
+		
+		// If we were loading and got progress, transition to playing
+		if p.state == StateLoading {
+			p.state = StatePlaying
+			// Send playback started message
+			return p, tea.Batch(
+				p.tickProgress(),
+				func() tea.Msg {
+					return PlaybackStartedMsg{
+						Track: p.currentTrack,
+					}
+				},
+			)
+		}
+		
 		// Sync state with audio player if available
 		if p.audioPlayer != nil {
 			p.syncStateWithAudioPlayer()
 		}
 		return p, p.tickProgress()
+		
+	case LoadingTimeoutMsg:
+		// Handle loading timeout
+		if p.state == StateLoading {
+			p.state = StateError
+			p.error = fmt.Errorf("loading timeout - unable to start playback")
+		}
+		return p, nil
+		
+	case PlaybackErrorMsg:
+		// Handle playback errors
+		p.state = StateError
+		p.error = msg.Error
+		return p, func() tea.Msg {
+			return PlaybackFailedMsg{
+				Track: p.currentTrack,
+				Error: msg.Error,
+			}
+		}
 		
 	case tea.WindowSizeMsg:
 		p.width = msg.Width
@@ -180,6 +214,9 @@ func (p *PlayerComponent) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return p, nil
 }
 
+// LoadingTimeoutMsg represents a loading timeout
+type LoadingTimeoutMsg struct{}
+
 // handlePlayTrack handles play track message
 func (p *PlayerComponent) handlePlayTrack(msg PlayTrackMsg) (tea.Model, tea.Cmd) {
 	p.currentTrack = msg.Track
@@ -193,7 +230,11 @@ func (p *PlayerComponent) handlePlayTrack(msg PlayTrackMsg) (tea.Model, tea.Cmd)
 		return p, nil
 	}
 	
-	return p, p.extractStreamURL(msg.Track.ID)
+	// Start loading with timeout
+	return p, tea.Batch(
+		p.extractStreamURL(msg.Track.ID),
+		p.loadingTimeoutCmd(),
+	)
 }
 
 // handleStreamInfo handles stream info message
@@ -215,16 +256,8 @@ func (p *PlayerComponent) handleStreamInfo(msg StreamInfoMsg) (tea.Model, tea.Cm
 		p.expectedDuration = time.Duration(msg.StreamInfo.Duration) * time.Millisecond
 	}
 	
-	p.state = StatePlaying
-	return p, tea.Batch(
-		p.playStream(msg.StreamInfo.URL),
-		// Send playback started message
-		func() tea.Msg {
-			return PlaybackStartedMsg{
-				Track: p.currentTrack,
-			}
-		},
-	)
+	// Stay in loading state until playback actually starts
+	return p, p.playStream(msg.StreamInfo.URL)
 }
 
 // togglePlayPause toggles between play and pause
@@ -263,41 +296,23 @@ func (p *PlayerComponent) togglePlayPause() (tea.Model, tea.Cmd) {
 			expectedDuration := time.Duration(p.currentTrack.Duration) * time.Millisecond
 			// Only restart from beginning if we're near the end or if duration is unknown
 			if p.position >= expectedDuration-2*time.Second || expectedDuration == 0 {
-				// Track completed - replay from beginning
+				// Track completed - replay from beginning using normal flow with timeout
 				p.state = StateLoading
-				return p, p.extractStreamURL(p.currentTrack.ID)
+				p.error = nil
+				p.prematureStopDetected = false
+				return p, tea.Batch(
+					p.extractStreamURL(p.currentTrack.ID),
+					p.loadingTimeoutCmd(),
+				)
 			} else {
-				// Premature stop - restart track but seek to current position to maintain continuity
-				fmt.Printf("[DEBUG] togglePlayPause: Restarting track due to premature stop at %v\n", 
-					p.position.Truncate(time.Millisecond))
-				savedPosition := p.position
+				// Premature stop - restart using normal flow (simpler and more reliable)
 				p.state = StateLoading
-				return p, func() tea.Msg {
-					// Extract new stream URL and then seek to saved position
-					streamInfo, err := p.streamExtractor.ExtractStreamURL(context.Background(), p.currentTrack.ID)
-					if err != nil {
-						return fmt.Errorf("failed to restart stream: %w", err)
-					}
-					
-					// Start playback
-					err = p.audioPlayer.Play(context.Background(), streamInfo.URL)
-					if err != nil {
-						return fmt.Errorf("failed to restart playback: %w", err)
-					}
-					
-					// Seek to saved position
-					if savedPosition > 0 {
-						err = p.audioPlayer.Seek(savedPosition)
-						if err != nil {
-							fmt.Printf("[DEBUG] togglePlayPause: Failed to seek to %v: %v\n", savedPosition, err)
-						}
-					}
-					
-					return ProgressUpdateMsg{
-						Position: p.audioPlayer.GetPosition(),
-						Duration: p.audioPlayer.GetDuration(),
-					}
-				}
+				p.error = nil
+				p.prematureStopDetected = false
+				return p, tea.Batch(
+					p.extractStreamURL(p.currentTrack.ID),
+					p.loadingTimeoutCmd(),
+				)
 			}
 		}
 		return p, nil
@@ -415,7 +430,8 @@ func (p *PlayerComponent) decreaseVolume() (tea.Model, tea.Cmd) {
 // extractStreamURL extracts the stream URL for a track
 func (p *PlayerComponent) extractStreamURL(trackID int64) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		// Use shorter timeout to prevent indefinite loading
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		
 		streamInfo, err := p.streamExtractor.ExtractStreamURL(ctx, trackID)
@@ -426,20 +442,25 @@ func (p *PlayerComponent) extractStreamURL(trackID int64) tea.Cmd {
 	}
 }
 
+// PlaybackErrorMsg represents a playback error
+type PlaybackErrorMsg struct {
+	Error error
+}
+
 // playStream starts playing a stream
 func (p *PlayerComponent) playStream(streamURL string) tea.Cmd {
 	return func() tea.Msg {
-		fmt.Printf("[DEBUG] playStream: Starting playback for URL: %s\n", streamURL[:50]+"...")
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		// Use shorter timeout to prevent hanging the TUI
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		
 		err := p.audioPlayer.Play(ctx, streamURL)
 		if err != nil {
-			fmt.Printf("[DEBUG] playStream: Play failed with error: %v\n", err)
-			return fmt.Errorf("failed to play stream: %w", err)
+			return PlaybackErrorMsg{
+				Error: fmt.Errorf("failed to play stream: %w", err),
+			}
 		}
 		
-		fmt.Printf("[DEBUG] playStream: Play succeeded, returning ProgressUpdateMsg\n")
 		return ProgressUpdateMsg{
 			Position: p.audioPlayer.GetPosition(),
 			Duration: p.audioPlayer.GetDuration(),
@@ -490,8 +511,7 @@ func (p *PlayerComponent) syncStateWithAudioPlayer() {
 				} else {
 					// Premature stop detected - only log once
 					if !p.prematureStopDetected {
-						fmt.Printf("[DEBUG] Player: Premature stop detected at %v of %v, press space to continue\n", 
-							p.position.Truncate(time.Millisecond), expectedDuration.Truncate(time.Millisecond))
+						// Premature stop detected
 						p.prematureStopDetected = true
 					}
 					// Don't change state immediately - wait for user input
@@ -799,4 +819,11 @@ func (p *PlayerComponent) GetError() error {
 func (p *PlayerComponent) SetSize(width, height int) {
 	p.width = width
 	p.height = height
+}
+
+// loadingTimeoutCmd returns a command that sends a timeout message after delay
+func (p *PlayerComponent) loadingTimeoutCmd() tea.Cmd {
+	return tea.Tick(15*time.Second, func(t time.Time) tea.Msg {
+		return LoadingTimeoutMsg{}
+	})
 }
