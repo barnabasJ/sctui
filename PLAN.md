@@ -6,13 +6,14 @@
 - **Phase 1-4**: Complete TUI implementation with working audio playback
 - **Phase 5**: Real audio implementation with HTTP streaming
 - **Recent Fix**: Audio playback reliability and user feedback system
+- **Phase 6**: Direct URL playback feature with auto-restart functionality
 
-#### Latest Improvements (Audio Playback & Feedback)
-- ✅ **HTTP Streaming**: Replaced full file download with 64KB buffered streaming
-- ✅ **Loading Feedback**: Added `StateTrackSelected` for loading indicators
-- ✅ **Error Handling**: Implemented `PlaybackStartedMsg`/`PlaybackFailedMsg` 
-- ✅ **Performance**: Improved memory usage and startup times
-- ✅ **User Experience**: Enhanced error messages and automatic view switching
+#### Latest Improvements (Direct URL Playback & Debugging)
+- ✅ **Direct Play Feature**: Added `--play <url>` flag for immediate track playback
+- ✅ **Debug Tools**: Implemented `--test-audio` and `--test-tui` for troubleshooting
+- ✅ **Auto-Restart**: Position-preserving restart for premature playback stops
+- ✅ **Error Investigation**: Deep analysis of Beep library premature stopping issues
+- ✅ **State Management**: Enhanced premature stop detection and recovery
 
 #### Technical Architecture Achieved
 - Complete Bubble Tea TUI with Search/Player/Queue views
