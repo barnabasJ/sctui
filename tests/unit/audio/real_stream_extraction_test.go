@@ -40,6 +40,11 @@ func (m *MockRealSoundCloudAPI) GetDownloadURL(trackURL string, format string) (
 	return "", fmt.Errorf("mock GetDownloadURL not implemented")
 }
 
+func (m *MockRealSoundCloudAPI) GetTrackInfoWithOptions(options soundcloudapi.GetTrackInfoOptions) ([]soundcloudapi.Track, error) {
+	// Delegate to GetTrackInfo for consistency
+	return m.GetTrackInfo(options)
+}
+
 func TestRealStreamExtraction_ValidTrackWithProgressiveFormat(t *testing.T) {
 	// Create a track with progressive transcoding
 	mockTrack := soundcloudapi.Track{
