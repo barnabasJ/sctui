@@ -69,12 +69,13 @@ type PlayerComponent struct {
 	height int
 	
 	// State
-	state        State
-	currentTrack *soundcloud.Track
-	position     time.Duration
-	duration     time.Duration
-	volume       float64
-	error        error
+	state           State
+	currentTrack    *soundcloud.Track
+	position        time.Duration
+	duration        time.Duration
+	expectedDuration time.Duration // Duration from SoundCloud metadata
+	volume          float64
+	error           error
 	
 	// Dependencies
 	audioPlayer     audio.Player
@@ -133,13 +134,7 @@ func (p *PlayerComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return p.handleError(msg)
 		
 	default:
-		// Handle progress updates from ticker
-		if p.audioPlayer != nil && p.state == StatePlaying {
-			p.position = p.audioPlayer.GetPosition()
-			p.duration = p.audioPlayer.GetDuration()
-			p.syncStateWithAudioPlayer()
-			return p, p.tickProgress()
-		}
+		// No special handling needed - let ProgressUpdateMsg handle updates
 	}
 	
 	return p, nil
@@ -194,6 +189,11 @@ func (p *PlayerComponent) handleStreamInfo(msg StreamInfoMsg) (tea.Model, tea.Cm
 		p.state = StateError
 		p.error = msg.Error
 		return p, nil
+	}
+	
+	// Store expected duration from SoundCloud metadata
+	if msg.StreamInfo != nil && msg.StreamInfo.Duration > 0 {
+		p.expectedDuration = time.Duration(msg.StreamInfo.Duration) * time.Millisecond
 	}
 	
 	p.state = StatePlaying
@@ -382,8 +382,9 @@ func (p *PlayerComponent) playStream(streamURL string) tea.Cmd {
 
 // tickProgress returns a command that sends progress updates
 func (p *PlayerComponent) tickProgress() tea.Cmd {
-	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
-		if p.audioPlayer != nil {
+	// Use shorter interval for smoother progress updates
+	return tea.Tick(250*time.Millisecond, func(t time.Time) tea.Msg {
+		if p.audioPlayer != nil && (p.state == StatePlaying || p.state == StatePaused) {
 			return ProgressUpdateMsg{
 				Position: p.audioPlayer.GetPosition(),
 				Duration: p.audioPlayer.GetDuration(),
@@ -515,12 +516,18 @@ func (p *PlayerComponent) renderPlayingView() string {
 	var progressBar string
 	var timeInfo string
 	
-	if p.duration > 0 {
-		progress := float64(p.position) / float64(p.duration)
+	// Use actual duration from audio player, fallback to expected duration from metadata
+	displayDuration := p.duration
+	if displayDuration <= 0 && p.expectedDuration > 0 {
+		displayDuration = p.expectedDuration
+	}
+	
+	if displayDuration > 0 {
+		progress := float64(p.position) / float64(displayDuration)
 		progressBar = styles.RenderProgressBar(p.width-12, progress)
 		
 		posStr := styles.FormatDurationFromTime(p.position)
-		durStr := styles.FormatDurationFromTime(p.duration)
+		durStr := styles.FormatDurationFromTime(displayDuration)
 		timeInfo = fmt.Sprintf("%s / %s", posStr, durStr)
 	} else {
 		progressBar = styles.RenderProgressBar(p.width-12, 0)
@@ -581,10 +588,16 @@ func (p *PlayerComponent) renderCompletedView() string {
 	var progressBar string
 	var timeInfo string
 	
-	if p.duration > 0 {
+	// Use actual duration from audio player, fallback to expected duration from metadata
+	displayDuration := p.duration
+	if displayDuration <= 0 && p.expectedDuration > 0 {
+		displayDuration = p.expectedDuration
+	}
+	
+	if displayDuration > 0 {
 		progressBar = styles.RenderProgressBar(p.width-12, 1.0) // 100% complete
 		
-		durStr := styles.FormatDurationFromTime(p.duration)
+		durStr := styles.FormatDurationFromTime(displayDuration)
 		timeInfo = fmt.Sprintf("%s / %s", durStr, durStr)
 	} else {
 		progressBar = styles.RenderProgressBar(p.width-12, 1.0)
