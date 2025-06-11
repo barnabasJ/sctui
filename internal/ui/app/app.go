@@ -156,14 +156,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			
 			// Handle track selection from search
 			if selectedTrack := a.searchComponent.GetSelectedTrack(); selectedTrack != nil {
+				// Don't clear selection immediately - wait for playback result
 				playCmd := player.PlayTrackMsg{Track: selectedTrack}
 				updatedPlayer, playerCmd := a.playerComponent.Update(playCmd)
 				a.playerComponent = updatedPlayer.(*player.PlayerComponent)
 				if playerCmd != nil {
 					cmds = append(cmds, playerCmd)
 				}
-				// Clear the selected track to avoid replaying
-				a.searchComponent.ClearSelection()
 			}
 			
 		case ViewPlayer:
@@ -181,6 +180,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update component sizes
 		a.searchComponent.SetSize(msg.Width, msg.Height-4) // Reserve space for header/footer
 		a.playerComponent.SetSize(msg.Width, msg.Height-4)
+		
+	case player.PlaybackStartedMsg:
+		// Playback started successfully - reset search state
+		a.searchComponent.ClearSelection()
+		a.searchComponent.ResetToResults()
+		// Switch to player view to show playback
+		a.currentView = ViewPlayer
+		return a, nil
+		
+	case player.PlaybackFailedMsg:
+		// Playback failed - reset search state and show error
+		a.searchComponent.ClearSelection()
+		a.searchComponent.ResetToResults()
+		// Stay in search view to let user try another track
+		// The error will be shown in the player component
+		return a, nil
 		
 	default:
 		// Pass other messages to components
