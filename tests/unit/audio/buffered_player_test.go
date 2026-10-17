@@ -151,7 +151,10 @@ func TestBufferedStreamPlayer_CallbacksAndCleanup(t *testing.T) {
 	
 	// Give callbacks time to execute
 	time.Sleep(100 * time.Millisecond)
-	
+
+	assert.True(t, stateChangeCalled, "Play's initial stopLocked() reports the stopped state via the callback")
+	assert.False(t, errorCalled, "the context deadline stops retries before the error callback would fire")
+
 	// Close should not panic
 	assert.NoError(t, player.Close())
 }

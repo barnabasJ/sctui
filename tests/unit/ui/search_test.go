@@ -255,19 +255,3 @@ func TestSearchComponent_ViewRendering(t *testing.T) {
 	view = component.View()
 	assert.Contains(t, view, "Test Track") // Should show results
 }
-
-// Mock SoundCloud client for testing
-type MockSoundCloudClient struct {
-	SearchFunc func(query string) ([]soundcloud.Track, error)
-}
-
-func (m *MockSoundCloudClient) Search(query string) ([]soundcloud.Track, error) {
-	if m.SearchFunc != nil {
-		return m.SearchFunc(query)
-	}
-	return []soundcloud.Track{}, nil
-}
-
-func (m *MockSoundCloudClient) GetTrackInfo(url string) (*soundcloud.Track, error) {
-	return nil, nil
-}

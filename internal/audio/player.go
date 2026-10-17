@@ -180,12 +180,7 @@ func (p *BeepPlayer) Play(ctx context.Context, streamURL string) error {
 
 	// Start playback
 	done := make(chan bool)
-	speaker.Play(beep.Seq(p.ctrl, beep.Callback(func() {
-		p.mu.Lock()
-		p.state = StateStopped
-		p.mu.Unlock()
-		done <- true
-	})))
+	speaker.Play(beep.Seq(p.ctrl, beep.Callback(p.completionCallback(done))))
 
 	p.state = StatePlaying
 	
@@ -267,11 +262,15 @@ func (p *BeepPlayer) GetPosition() time.Duration {
 func (p *BeepPlayer) GetDuration() time.Duration {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	
+	return p.getDurationLocked()
+}
+
+// getDurationLocked returns total track duration. Caller must hold p.mu (read or write).
+func (p *BeepPlayer) getDurationLocked() time.Duration {
 	if p.streamer == nil || p.format.SampleRate == 0 {
 		return 0
 	}
-	
+
 	return p.format.SampleRate.D(p.streamer.Len())
 }
 
@@ -316,7 +315,7 @@ func (p *BeepPlayer) Seek(position time.Duration) error {
 		return fmt.Errorf("no audio stream loaded")
 	}
 	
-	duration := p.GetDuration()
+	duration := p.getDurationLocked()
 	if position > duration {
 		return fmt.Errorf("position %s exceeds duration %s", position, duration)
 	}
@@ -348,6 +347,29 @@ func (p *BeepPlayer) Close() error {
 }
 
 // Helper methods
+
+// completionCallback returns the function registered with beep.Callback to
+// run when playback finishes naturally. beep's speaker package invokes it
+// synchronously, on its own audio/oto callback thread, while holding its own
+// internal mutex (speaker.Lock/Unlock). Pause, Resume, SetVolume, Seek and
+// stopLocked all acquire p.mu first and then call speaker.Lock(); acquiring
+// p.mu directly here would invert that order and AB/BA deadlock against any
+// of them. The returned function must therefore only ever hand the work off
+// to a new goroutine, never touch p.mu itself.
+func (p *BeepPlayer) completionCallback(done chan bool) func() {
+	return func() {
+		go p.onPlaybackFinished(done)
+	}
+}
+
+// onPlaybackFinished does the actual state update for a finished track. It
+// must only run on a goroutine of its own -- see completionCallback.
+func (p *BeepPlayer) onPlaybackFinished(done chan bool) {
+	p.mu.Lock()
+	p.state = StateStopped
+	p.mu.Unlock()
+	done <- true
+}
 
 // stopLocked stops playback without acquiring lock (caller must hold lock)
 func (p *BeepPlayer) stopLocked() error {

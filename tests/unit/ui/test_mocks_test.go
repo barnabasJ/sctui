@@ -118,6 +118,10 @@ func (m *MockSoundCloudClient) Search(query string) ([]soundcloud.Track, error) 
 	return []soundcloud.Track{}, nil
 }
 
+func (m *MockSoundCloudClient) GetDownloadURL(trackURL string, format string) (string, error) {
+	return "", nil
+}
+
 func (m *MockSoundCloudClient) GetTrackInfo(url string) (*soundcloud.Track, error) {
 	return &soundcloud.Track{
 		ID:    123,

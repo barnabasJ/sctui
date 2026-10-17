@@ -2,7 +2,6 @@ package ui_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/assert"

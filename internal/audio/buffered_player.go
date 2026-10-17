@@ -132,8 +132,13 @@ func (p *BufferedStreamPlayer) Play(ctx context.Context, streamURL string) error
 		downloadDone: make(chan bool, 1),
 	}
 	
-	// Start progressive download
-	go p.downloadStream()
+	// Start progressive download. streamURL and p.buffer are passed
+	// explicitly rather than read back from the fields inside the goroutine:
+	// this goroutine runs unsynchronized with p.mu, and both fields can be
+	// reassigned by a concurrent stopLocked()/Play() call, which is a data
+	// race (and, for p.buffer, would make a stale goroutine from a previous
+	// track silently start writing into the new track's buffer).
+	go p.downloadStream(streamURL, p.buffer)
 	
 	// Wait for initial buffer to fill with shorter timeout
 	preloadCtx, preloadCancel := context.WithTimeout(ctx, 5*time.Second)
@@ -184,16 +189,7 @@ func (p *BufferedStreamPlayer) Play(ctx context.Context, streamURL string) error
 	
 	// Start playback with callback
 	done := make(chan bool)
-	speaker.Play(beep.Seq(p.ctrl, beep.Callback(func() {
-		p.mu.Lock()
-		p.state = StateStopped
-		p.positionTracker.Stop()
-		if p.onStateChange != nil {
-			go p.onStateChange(p.state)
-		}
-		p.mu.Unlock()
-		done <- true
-	})))
+	speaker.Play(beep.Seq(p.ctrl, beep.Callback(p.completionCallback(done))))
 	
 	p.state = StatePlaying
 	
@@ -202,32 +198,35 @@ func (p *BufferedStreamPlayer) Play(ctx context.Context, streamURL string) error
 	}
 	
 	// Start position tracking goroutine
-	go p.trackPositionWithBuffer(done)
+	go p.trackPositionWithBuffer(done, p.buffer)
 	
 	return nil
 }
 
-// downloadStream downloads the audio stream progressively with retry logic
-func (p *BufferedStreamPlayer) downloadStream() {
+// downloadStream downloads the audio stream progressively with retry logic.
+// buf is the specific StreamBuffer this goroutine was started for, captured
+// by the caller at spawn time -- see trackPositionWithBuffer for why reading
+// p.buffer directly from this goroutine would be unsafe.
+func (p *BufferedStreamPlayer) downloadStream(streamURL string, buf *StreamBuffer) {
 	defer func() {
-		p.buffer.downloadDone <- true
+		buf.downloadDone <- true
 	}()
-	
+
 	for attempt := 0; attempt < p.maxRetries; attempt++ {
 		if attempt > 0 {
 			// Wait before retry with exponential backoff
 			delay := time.Duration(attempt) * p.backoffDuration
 			select {
-			case <-p.buffer.ctx.Done():
+			case <-buf.ctx.Done():
 				return
 			case <-time.After(delay):
 			}
 		}
-		
-		if p.downloadStreamAttempt() {
+
+		if p.downloadStreamAttempt(streamURL, buf) {
 			return // Success
 		}
-		
+
 		// If this was the last attempt, mark as failed
 		if attempt == p.maxRetries-1 {
 			p.mu.Lock()
@@ -241,55 +240,55 @@ func (p *BufferedStreamPlayer) downloadStream() {
 }
 
 // downloadStreamAttempt makes a single attempt to download the stream
-func (p *BufferedStreamPlayer) downloadStreamAttempt() bool {
-	req, err := http.NewRequestWithContext(p.buffer.ctx, "GET", p.streamURL, nil)
+func (p *BufferedStreamPlayer) downloadStreamAttempt(streamURL string, buf *StreamBuffer) bool {
+	req, err := http.NewRequestWithContext(buf.ctx, "GET", streamURL, nil)
 	if err != nil {
 		return false
 	}
-	
+
 	// Add range header if we're resuming from a previous position
-	p.buffer.mu.RLock()
-	resumeFrom := p.buffer.writePos
-	p.buffer.mu.RUnlock()
-	
+	buf.mu.RLock()
+	resumeFrom := buf.writePos
+	buf.mu.RUnlock()
+
 	if resumeFrom > 0 {
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", resumeFrom))
 	}
-	
+
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		return false
 	}
 	defer resp.Body.Close()
-	
+
 	// Accept both 200 (full content) and 206 (partial content)
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		return false
 	}
-	
-	
+
+
 	// Read data in chunks with improved error handling
 	chunk := make([]byte, 32*1024) // 32KB chunks
 	consecutiveErrors := 0
 	maxConsecutiveErrors := 3
-	
+
 	for {
 		select {
-		case <-p.buffer.ctx.Done():
+		case <-buf.ctx.Done():
 			return false // Context cancelled
 		default:
 		}
-		
+
 		n, err := resp.Body.Read(chunk)
 		if n > 0 {
-			p.buffer.write(chunk[:n])
+			buf.write(chunk[:n])
 			consecutiveErrors = 0 // Reset error count on successful read
 		}
-		
+
 		if err == io.EOF {
-			p.buffer.mu.Lock()
-			p.buffer.completed = true
-			p.buffer.mu.Unlock()
+			buf.mu.Lock()
+			buf.completed = true
+			buf.mu.Unlock()
 			return true // Success
 		}
 		
@@ -435,11 +434,15 @@ func (p *BufferedStreamPlayer) GetPosition() time.Duration {
 func (p *BufferedStreamPlayer) GetDuration() time.Duration {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	
+	return p.getDurationLocked()
+}
+
+// getDurationLocked returns total track duration. Caller must hold p.mu (read or write).
+func (p *BufferedStreamPlayer) getDurationLocked() time.Duration {
 	if p.streamer == nil || p.format.SampleRate == 0 {
 		return 0
 	}
-	
+
 	return p.format.SampleRate.D(p.streamer.Len())
 }
 
@@ -484,7 +487,7 @@ func (p *BufferedStreamPlayer) Seek(position time.Duration) error {
 		return fmt.Errorf("no audio stream loaded")
 	}
 	
-	duration := p.GetDuration()
+	duration := p.getDurationLocked()
 	if position > duration {
 		return fmt.Errorf("position %s exceeds duration %s", position, duration)
 	}
@@ -535,6 +538,35 @@ func (p *BufferedStreamPlayer) SetErrorCallback(callback func(error)) {
 
 // Helper methods
 
+// completionCallback returns the function registered with beep.Callback to
+// run when playback finishes naturally. beep's speaker package invokes it
+// synchronously, on its own audio/oto callback thread, while holding its own
+// internal mutex (speaker.Lock/Unlock). Pause, Resume, SetVolume, Seek and
+// stopLocked all acquire p.mu first and then call speaker.Lock(); acquiring
+// p.mu directly here would invert that order and AB/BA deadlock against any
+// of them. The returned function must therefore only ever hand the work off
+// to a new goroutine, never touch p.mu itself.
+func (p *BufferedStreamPlayer) completionCallback(done chan bool) func() {
+	return func() {
+		go p.onPlaybackFinished(done)
+	}
+}
+
+// onPlaybackFinished does the actual state update for a finished track. It
+// must only run on a goroutine of its own -- see completionCallback.
+func (p *BufferedStreamPlayer) onPlaybackFinished(done chan bool) {
+	p.mu.Lock()
+	p.state = StateStopped
+	p.positionTracker.Stop()
+	onStateChange := p.onStateChange
+	state := p.state
+	p.mu.Unlock()
+	if onStateChange != nil {
+		onStateChange(state)
+	}
+	done <- true
+}
+
 // stopLocked stops playback without acquiring lock (caller must hold lock)
 func (p *BufferedStreamPlayer) stopLocked() error {
 	if p.ctrl != nil {
@@ -584,14 +616,19 @@ func (p *BufferedStreamPlayer) volumeToBeepVolume(linearVolume float64) float64 
 	return (linearVolume - 1.0) * 2.0 // Simple approximation
 }
 
-// trackPositionWithBuffer tracks position and manages buffer health
-func (p *BufferedStreamPlayer) trackPositionWithBuffer(done <-chan bool) {
+// trackPositionWithBuffer tracks position and manages buffer health. buf is
+// the specific StreamBuffer this goroutine was started for, captured by the
+// caller at spawn time: this goroutine runs unsynchronized with p.mu, and
+// p.buffer can be reassigned by a later Play()/stopLocked() call, so reading
+// it directly here would be a data race (and, worse, would make this
+// goroutine silently start reporting on a different track's buffer).
+func (p *BufferedStreamPlayer) trackPositionWithBuffer(done <-chan bool, buf *StreamBuffer) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	
+
 	bufferHealthTicker := time.NewTicker(1 * time.Second)
 	defer bufferHealthTicker.Stop()
-	
+
 	for {
 		select {
 		case <-done:
@@ -601,13 +638,14 @@ func (p *BufferedStreamPlayer) trackPositionWithBuffer(done <-chan bool) {
 			if p.positionTracker != nil {
 				p.positionTracker.Update()
 			}
-			
+
 		case <-bufferHealthTicker.C:
 			// Check buffer health and attempt recovery if needed
-			if p.buffer != nil {
-				if !p.buffer.isHealthy() && !p.isRecovering {
-					go p.attemptBufferRecovery()
-				}
+			p.mu.RLock()
+			isRecovering := p.isRecovering
+			p.mu.RUnlock()
+			if buf != nil && !buf.isHealthy() && !isRecovering {
+				go p.attemptBufferRecovery()
 			}
 		}
 	}
@@ -621,28 +659,33 @@ func (p *BufferedStreamPlayer) attemptBufferRecovery() {
 		return
 	}
 	p.isRecovering = true
+	// Snapshot the fields we need under p.mu: ctrl and buffer can be
+	// replaced concurrently by Play/stopLocked, so reading them without
+	// holding the lock would be a data race.
+	ctrl := p.ctrl
+	buf := p.buffer
 	p.mu.Unlock()
-	
+
 	defer func() {
 		p.mu.Lock()
 		p.isRecovering = false
 		p.mu.Unlock()
 	}()
-	
+
 	// Pause playback temporarily
-	if p.ctrl != nil {
+	if ctrl != nil {
 		speaker.Lock()
-		wasPlaying := !p.ctrl.Paused
-		p.ctrl.Paused = true
+		wasPlaying := !ctrl.Paused
+		ctrl.Paused = true
 		speaker.Unlock()
-		
+
 		// Wait for buffer to recover
 		time.Sleep(p.reconnectDelay)
-		
+
 		// Check if buffer is healthier now
-		if p.buffer != nil && p.buffer.isHealthy() && wasPlaying {
+		if buf != nil && buf.isHealthy() && wasPlaying {
 			speaker.Lock()
-			p.ctrl.Paused = false
+			ctrl.Paused = false
 			speaker.Unlock()
 		}
 	}
